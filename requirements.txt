@@ -2,3 +2,5 @@ discord.py
 aiohttp[speedups]==3.6.0
 lxml
 pytz
+opencv-python
+yt-dlp
