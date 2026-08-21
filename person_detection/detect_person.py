@@ -2,8 +2,12 @@
 """Detect when a specific person appears in a video, using one or more
 reference photos of that person's face.
 
+--video accepts either a local file path or a URL (Kick, YouTube, and
+anything else yt-dlp supports) - URLs are downloaded automatically.
+
 Usage:
     python detect_person.py --video clip.mp4 --reference photo1.jpg photo2.jpg
+    python detect_person.py --video https://kick.com/user/videos/xyz --reference photo1.jpg
 
 See README.md in this folder for full usage details.
 """
@@ -11,9 +15,51 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import cv2
 import face_recognition
+
+
+def is_url(value):
+    return urlparse(str(value)).scheme in ("http", "https")
+
+
+def download_video(url, cache_dir, cookies_file=None):
+    try:
+        import yt_dlp
+    except ImportError:
+        raise SystemExit(
+            "Downloading from a URL requires yt-dlp. Install it with: pip install yt-dlp"
+        )
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    ydl_opts = {
+        "outtmpl": str(cache_dir / "%(id)s.%(ext)s"),
+        "format": "bv*+ba/b",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+    }
+    if cookies_file:
+        ydl_opts["cookiefile"] = str(cookies_file)
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        video_id = info["id"]
+        cached = cache_dir / f"{video_id}.mp4"
+        if cached.exists():
+            print(f"Using cached download: {cached}")
+            return cached
+
+        print(f"Downloading video from {url} ...")
+        ydl.download([url])
+
+        if cached.exists():
+            return cached
+        matches = list(cache_dir.glob(f"{video_id}.*"))
+        if matches:
+            return matches[0]
+        raise SystemExit(f"Download finished but output file was not found for {url}")
 
 
 def load_known_encodings(reference_paths):
@@ -126,9 +172,14 @@ def detect(video_path, reference_paths, tolerance=0.6, frame_skip=5,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--video", required=True, type=Path, help="Path to the video file to scan")
+    parser.add_argument("--video", required=True, type=str,
+                         help="Local video file path, or a URL (Kick, YouTube, etc.) to download and scan")
     parser.add_argument("--reference", required=True, nargs="+", type=Path,
                          help="One or more photos of the person's face (more photos = better accuracy)")
+    parser.add_argument("--cache-dir", type=Path, default=Path("downloads"),
+                         help="Where to save videos downloaded from a URL (default: ./downloads)")
+    parser.add_argument("--cookies-file", type=Path, default=None,
+                         help="Optional cookies.txt for downloading private/subscriber-only videos")
     parser.add_argument("--tolerance", type=float, default=0.6,
                          help="Lower = stricter match (default: 0.6)")
     parser.add_argument("--frame-skip", type=int, default=5,
@@ -143,8 +194,13 @@ def main():
                          help="Optional: write the detected intervals as JSON to this path")
     args = parser.parse_args()
 
+    if is_url(args.video):
+        video_path = download_video(args.video, args.cache_dir, args.cookies_file)
+    else:
+        video_path = Path(args.video)
+
     intervals = detect(
-        video_path=args.video,
+        video_path=video_path,
         reference_paths=args.reference,
         tolerance=args.tolerance,
         frame_skip=args.frame_skip,

@@ -36,6 +36,30 @@ CMake și un compilator C++ instalate pe sistem:
 python detect_person.py --video clip.mp4 --reference poza_persoana.jpg
 ```
 
+### Link-uri Kick (sau alte site-uri video)
+
+`--video` poate fi și un link, nu doar un fișier local — de exemplu un VOD
+de pe Kick:
+
+```bash
+python detect_person.py \
+  --video https://kick.com/stefulici/videos/01a01dd6-9408-7a87-b533-6aa7bcdb5788 \
+  --reference poza_persoana.jpg
+```
+
+Descărcarea se face automat cu [`yt-dlp`](https://github.com/yt-dlp/yt-dlp)
+(instalat din `requirements.txt`), care suportă Kick, YouTube și multe alte
+site-uri. Videoclipul descărcat e salvat în `./downloads/` (poți schimba
+locația cu `--cache-dir`), iar dacă rulezi din nou scriptul pe același
+link, folosește copia deja descărcată în loc să descarce iar.
+
+Kick e protejat de Cloudflare, de aceea `requirements.txt` instalează
+`yt-dlp[curl-cffi]` — extensia care simulează un browser real, necesară
+ca yt-dlp să poată accesa API-ul Kick fără să fie blocat.
+
+Dacă VOD-ul e privat/doar pentru abonați, poți da un fișier de cookies
+exportat din browser cu `--cookies-file cookies.txt`.
+
 Poți da mai multe poze de referință (unghiuri/lumini diferite) pentru
 acuratețe mai bună:
 
@@ -53,6 +77,8 @@ Opțiuni utile:
 | `--merge-gap` | secunde de toleranță pentru a uni detectări apropiate într-un singur interval | `1.0` |
 | `--output-video` | salvează un video cu chenar verde pe fața detectată | - |
 | `--report` | salvează intervalele găsite ca fișier JSON | - |
+| `--cache-dir` | unde se salvează video-urile descărcate de la un link | `./downloads` |
+| `--cookies-file` | fișier cookies.txt pentru video-uri private/doar pentru abonați | - |
 
 Exemplu complet:
 
