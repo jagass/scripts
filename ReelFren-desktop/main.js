@@ -52,7 +52,10 @@ function readLocal(name) {
 // Scripturile rulate in pagina, in ordine: puntea de mesaje, player, reclame, filtru, tastatura.
 const BRIDGE_SHIM =
   'if(!window.RFBridge){window.RFBridge={onmessage:null,postMessage:function(m){window.postMessage({__rfOut:String(m)},"*");}};}';
-const PAGE_SCRIPT = [BRIDGE_SHIM, readShared('player.js'), readShared('adblock.js'),
+// hls.js e incarcat sub alt nume (__RfHls), ca sa nu se amestece cu un eventual hls.js al site-ului
+const HLS_LIB = '(function(){var module={exports:{}};var exports=module.exports;var define;\n' +
+  readShared('hls.min.js') + '\n;window.__RfHls=module.exports;})();';
+const PAGE_SCRIPT = [BRIDGE_SHIM, HLS_LIB, readLocal('hls-shim.js'), readShared('player.js'), readShared('adblock.js'),
   readShared('filter.js'), readLocal('desktop.js')].join('\n;\n');
 
 // Fereastra isi aminteste marimea si pozitia.
@@ -69,6 +72,7 @@ function saveBounds(win) {
 }
 
 let win = null;
+const challengeByWc = new Map();
 
 // Identificare exact ca un Chrome obisnuit pe Windows (fara "Electron" / numele aplicatiei,
 // cu versiunea scurtata cum o trimite Chrome). Se aplica peste tot, inclusiv verificarii Cloudflare.
@@ -144,16 +148,31 @@ if (!gotLock) {
     const ses = session.defaultSession;
     // Ne prezentam ca un Chrome obisnuit (unele site-uri refuza aplicatiile).
     ses.setUserAgent(CLEAN_UA);
-    // Cererile spre retele de reclame cunoscute sunt anulate.
-    ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
-      let host = '';
-      try { host = new URL(details.url).hostname; } catch (e) { /* ignore */ }
-      cb({ cancel: hostMatches(host, AD_HOSTS) });
+    // Cererile spre retele de reclame cunoscute sunt anulate. Filtrul e doar pe adresele lor,
+    // ca restul (ex. sutele de bucati ale unui episod) sa nu treaca prin aplicatie si sa nu incetineasca.
+    const adUrls = [];
+    AD_HOSTS.forEach((h) => { adUrls.push('*://' + h + '/*', '*://*.' + h + '/*'); });
+    ses.webRequest.onBeforeRequest({ urls: adUrls }, (details, cb) => cb({ cancel: true }));
+
+    // Pagina de verificare Cloudflare se recunoaste dupa raspunsul serverului ("cf-mitigated: challenge").
+    // Pe ea nu punem niciun script (altfel Cloudflare crede ca e un robot si cere verificarea la nesfarsit).
+    const siteUrls = [];
+    ALLOWED_DOMAINS.forEach((d) => { siteUrls.push('*://' + d + '/*', '*://*.' + d + '/*'); });
+    ses.webRequest.onHeadersReceived({ urls: siteUrls }, (details, cb) => {
+      if (details.resourceType === 'mainFrame') {
+        const h = details.responseHeaders || {};
+        const isChallenge = Object.keys(h).some((k) => k.toLowerCase() === 'cf-mitigated' &&
+          String(h[k]).toLowerCase().indexOf('challenge') >= 0);
+        challengeByWc.set(details.webContentsId, isChallenge);
+      }
+      cb({});
     });
     // Notificari, locatie etc.: refuzate (site-urile de reclame le cer des).
     ses.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
 
-    ipcMain.on('rf:scripts', (e) => { e.returnValue = PAGE_SCRIPT; });
+    ipcMain.on('rf:scripts', (e) => {
+      e.returnValue = challengeByWc.get(e.sender.id) ? '' : PAGE_SCRIPT;
+    });
     ipcMain.on('rf:fs', (e, on) => { if (win) win.setFullScreen(!!on); });
 
     createWindow();

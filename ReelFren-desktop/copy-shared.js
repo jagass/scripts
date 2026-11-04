@@ -10,4 +10,6 @@ for (const f of ['player.js', 'filter.js', 'adblock.js']) {
   fs.copyFileSync(path.join(src, f), path.join(dst, f));
 }
 fs.copyFileSync(path.join(__dirname, 'sites', site + '.json'), path.join(__dirname, 'site.json'));
+// hls.js: redarea episoadelor .m3u8 pe desktop
+fs.copyFileSync(require.resolve('hls.js/dist/hls.min.js'), path.join(dst, 'hls.min.js'));
 console.log('prepared for site:', site);

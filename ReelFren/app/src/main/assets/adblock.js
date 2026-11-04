@@ -81,18 +81,27 @@
     hiddenAds = [];
   }
 
+  // cautarea in toata pagina e mai costisitoare: cel mult o data pe secunda
+  var lastDeep = 0;
+  function deepThrottled() {
+    var now = Date.now();
+    if (now - lastDeep < 1000) return;
+    lastDeep = now;
+    deepSweep();
+  }
+
   var pending = false;
   function schedule() {
     if (pending) return;
     pending = true;
-    setTimeout(function () { pending = false; sweep(); deepSweep(); }, 250);
+    setTimeout(function () { pending = false; sweep(); deepThrottled(); }, 250);
   }
 
   function start() {
     sweep();
     deepSweep();
     new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(function () { sweep(); deepSweep(); }, 1500);
+    setInterval(function () { sweep(); deepThrottled(); }, 3000);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
