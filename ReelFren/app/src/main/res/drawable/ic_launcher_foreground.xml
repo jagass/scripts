@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- rola de film -->
+    <path android:fillColor="#FFE50914"
+        android:pathData="M54,30a24,24 0,1 1,0 48a24,24 0,1 1,0 -48z" />
+    <path android:fillColor="#FF16161C"
+        android:pathData="M54,36a5,5 0,1 1,0 10a5,5 0,1 1,0 -10zM54,62a5,5 0,1 1,0 10a5,5 0,1 1,0 -10zM41,49a5,5 0,1 1,0 10a5,5 0,1 1,0 -10zM67,49a5,5 0,1 1,0 10a5,5 0,1 1,0 -10z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,51.5a2.5,2.5 0,1 1,0 5a2.5,2.5 0,1 1,0 -5z" />
+</vector>
