@@ -2,6 +2,9 @@
 
 WebView pentru https://reelfren.net — pe tot ecranul, video fullscreen, pop-up-uri si linkuri externe blocate.
 
+In fullscreen, atinge ecranul: apar butoanele **-10s / +10s / -1m / +1m** si **Episodul urmator**
+(cauta butonul de "urmatorul episod" din pagina sau din player si il apasa).
+
 ## Cum iei APK-ul
 1. Orice push in folderul `ReelFren/` porneste workflow-ul **Build ReelFren APK** (sau il pornesti manual din tab-ul *Actions* → *Run workflow*).
 2. APK-ul apare in **Releases** (`ReelFren vN` → `ReelFren.apk`) — deschide pagina de pe telefon si descarca-l.

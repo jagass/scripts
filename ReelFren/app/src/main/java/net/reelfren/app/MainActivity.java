@@ -6,6 +6,9 @@ import android.content.pm.ActivityInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.MotionEvent;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,6 +27,17 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 public class MainActivity extends Activity {
 
     private static final String HOME_URL = "https://reelfren.net/";
@@ -39,6 +53,17 @@ public class MainActivity extends Activity {
     private ChromeClient chromeClient;
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
+
+    /** Containerul de fullscreen: video + butoanele noastre (derulare / episod urmator). */
+    private FrameLayout fullscreenBox;
+    private View controls;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable hideControls = () -> { if (controls != null) controls.setVisibility(View.GONE); };
+
+    private String playerJs = "";
+    private boolean startScriptInjected = false;
+    /** Canale catre fiecare frame (pagina + iframe-ul playerului), ca sa putem derula video-ul. */
+    private final List<JavaScriptReplyProxy> frames = new ArrayList<>();
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -85,6 +110,20 @@ public class MainActivity extends Activity {
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(webView, true);
 
+        playerJs = readAsset("player.js");
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
+                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
+                        if ("hello".equals(message.getData()) && !frames.contains(replyProxy)) {
+                            frames.add(replyProxy);
+                        }
+                    });
+        }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(webView, playerJs, Collections.singleton("*"));
+            startScriptInjected = true;
+        }
+
         webView.setWebViewClient(new Client());
         chromeClient = new ChromeClient();
         webView.setWebChromeClient(chromeClient);
@@ -121,7 +160,13 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+            frames.clear();
+        }
+
+        @Override
         public void onPageFinished(WebView view, String url) {
+            if (!startScriptInjected) view.evaluateJavascript(playerJs, null);
             CookieManager.getInstance().flush();
         }
 
@@ -153,28 +198,47 @@ public class MainActivity extends Activity {
             }
             fullscreenView = view;
             fullscreenCallback = callback;
-            root.addView(view, new FrameLayout.LayoutParams(
+            fullscreenBox = new FrameLayout(MainActivity.this) {
+                @Override
+                public boolean onInterceptTouchEvent(MotionEvent ev) {
+                    if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) showControls();
+                    return false; // atingerea ajunge si la playerul site-ului
+                }
+            };
+            fullscreenBox.setBackgroundColor(Color.BLACK);
+            fullscreenBox.addView(view, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            controls = buildControls();
+            fullscreenBox.addView(controls, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+            root.addView(fullscreenBox, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            showControls();
             webView.setVisibility(View.GONE);
-            setImmersive(true);
+            setVideoFullscreen(true);
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         }
 
         @Override
         public void onHideCustomView() {
             if (fullscreenView == null) return;
-            root.removeView(fullscreenView);
+            handler.removeCallbacks(hideControls);
+            fullscreenBox.removeAllViews();
+            root.removeView(fullscreenBox);
+            fullscreenBox = null;
+            controls = null;
             fullscreenView = null;
             if (fullscreenCallback != null) fullscreenCallback.onCustomViewHidden();
             fullscreenCallback = null;
             webView.setVisibility(View.VISIBLE);
-            setImmersive(false);
+            setVideoFullscreen(false);
             setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         }
     }
 
     @SuppressWarnings("deprecation")
-    private void setImmersive(boolean on) {
+    private void setVideoFullscreen(boolean on) {
         View decor = getWindow().getDecorView();
         if (on) {
             decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -187,6 +251,86 @@ public class MainActivity extends Activity {
         } else {
             decor.setSystemUiVisibility(0);
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        }
+    }
+
+    private void showControls() {
+        if (controls == null) return;
+        controls.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideControls);
+        handler.postDelayed(hideControls, 4000);
+    }
+
+    private View buildControls() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        bar.setBackgroundColor(Color.parseColor("#99000000"));
+        bar.addView(controlButton("\u23EA 10s", () -> seek(-10)));
+        bar.addView(controlButton("10s \u23E9", () -> seek(10)));
+        bar.addView(controlButton("\u23EA 1m", () -> seek(-60)));
+        bar.addView(controlButton("1m \u23E9", () -> seek(60)));
+        bar.addView(controlButton("Episodul urm\u0103tor \u23ED", this::nextEpisode));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bar.setLayoutParams(lp);
+        return bar;
+    }
+
+    private Button controlButton(String text, Runnable action) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(14);
+        b.setBackgroundColor(Color.parseColor("#33FFFFFF"));
+        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(40));
+        lp.setMargins(dp(4), 0, dp(4), 0);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(v -> { action.run(); showControls(); });
+        return b;
+    }
+
+    private void seek(int seconds) {
+        String msg = "seek:" + seconds;
+        for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
+            try { p.postMessage(msg); } catch (Exception ignored) { }
+        }
+        // si direct in pagina principala (daca video-ul e acolo)
+        webView.evaluateJavascript(
+                "(function(){var d=" + seconds + ";document.querySelectorAll('video').forEach(function(v){"
+                + "if(!window.RFBridge){v.currentTime=Math.max(0,v.currentTime+d);}});})()", null);
+        Toast.makeText(this, (seconds > 0 ? "+" : "") + seconds + "s", Toast.LENGTH_SHORT).show();
+    }
+
+    private void nextEpisode() {
+        webView.evaluateJavascript("window.__rfNext ? window.__rfNext() : false", result -> {
+            if ("true".equals(result)) {
+                if (fullscreenView != null) chromeClient.onHideCustomView();
+                Toast.makeText(this, "Episodul urm\u0103tor\u2026", Toast.LENGTH_SHORT).show();
+            } else {
+                // poate butonul e in interiorul playerului (iframe)
+                for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
+                    try { p.postMessage("next"); } catch (Exception ignored) { }
+                }
+                Toast.makeText(this, "Caut episodul urm\u0103tor in player\u2026", Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private String readAsset(String name) {
+        try (InputStream in = getAssets().open(name)) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toString(StandardCharsets.UTF_8.name());
+        } catch (Exception e) {
+            return "";
         }
     }
 
