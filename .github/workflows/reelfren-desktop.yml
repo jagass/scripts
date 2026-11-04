@@ -1,4 +1,4 @@
-name: Build ReelFren Desktop (Windows)
+name: Build Desktop Apps (Windows)
 
 on:
   push:
@@ -14,6 +14,16 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - site: reelfren
+            exe: ReelFren.exe
+            title: ReelFren Desktop
+          - site: shortmax
+            exe: ShortMax.exe
+            title: ShortMax Desktop
     defaults:
       run:
         working-directory: ReelFren-desktop
@@ -30,17 +40,17 @@ jobs:
       - name: Build portable exe
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run dist
+        run: node build-site.js ${{ matrix.site }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ReelFren-exe
-          path: ReelFren-desktop/dist/ReelFren.exe
+          name: ${{ matrix.site }}-exe
+          path: ReelFren-desktop/dist/${{ matrix.exe }}
 
       - name: Publish release (download direct)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: reelfren-desktop-v${{ github.run_number }}
-          name: ReelFren Desktop v${{ github.run_number }}
+          tag_name: ${{ matrix.site }}-desktop-v${{ github.run_number }}
+          name: ${{ matrix.title }} v${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          files: ReelFren-desktop/dist/ReelFren.exe
+          files: ReelFren-desktop/dist/${{ matrix.exe }}

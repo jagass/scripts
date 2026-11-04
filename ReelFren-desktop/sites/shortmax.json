@@ -1,0 +1,8 @@
+{
+  "id": "shortmax",
+  "productName": "ShortMax",
+  "appId": "live.shorttw.shortmax.desktop",
+  "home": "https://shortmax.shorttw.live/index.php",
+  "domains": ["shorttw.live"],
+  "icon": "build/icon-shortmax.png"
+}

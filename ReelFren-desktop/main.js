@@ -1,11 +1,21 @@
-// ReelFren pentru Windows: o fereastra dedicata pentru reelfren.net,
-// cu aceleasi protectii ca aplicatia Android (linkuri externe, pop-up-uri, reclame).
+// Fereastra dedicata pentru un site de seriale (ReelFren, ShortMax...), cu aceleasi protectii
+// ca aplicatia Android: linkuri externe, pop-up-uri si reclame blocate. Site-ul vine din site.json.
 const { app, BrowserWindow, session, ipcMain, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-const HOME_URL = 'https://reelfren.net/';
-const ALLOWED_DOMAINS = ['reelfren.net'];
+const SITE = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'site.json'), 'utf8')); } catch (e) {
+    return { productName: 'ReelFren', home: 'https://reelfren.net/', domains: ['reelfren.net'], icon: 'build/icon.png' };
+  }
+})();
+const HOME_URL = SITE.home;
+const ALLOWED_DOMAINS = SITE.domains;
+const APP_NAME = SITE.productName;
+
+// fiecare aplicatie are datele ei separate (login, cookie-uri, marimea ferestrei)
+app.setName(APP_NAME);
+app.setPath('userData', path.join(app.getPath('appData'), APP_NAME));
 const AD_HOSTS = [
   'doubleclick.net', 'googlesyndication.com', 'googleadservices.com', 'adservice.google.com',
   'popads.net', 'popcash.net', 'propellerads.com', 'propellerclick.com', 'onclickads.net', 'onclkds.com',
@@ -72,9 +82,9 @@ function createWindow() {
   win = new BrowserWindow({
     x: b.x, y: b.y, width: b.width || 1280, height: b.height || 860,
     minWidth: 400, minHeight: 500,
-    title: 'ReelFren',
+    title: APP_NAME,
     backgroundColor: '#101014',
-    icon: path.join(__dirname, 'build', 'icon.png'),
+    icon: path.join(__dirname, SITE.icon || 'build/icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -93,7 +103,16 @@ function createWindow() {
     return { action: 'deny' };
   });
   // Navigare spre alte domenii (reclame, redirecturi): blocata.
-  const guard = (e, url) => { if (!isAllowed(url)) e.preventDefault(); };
+  const guard = (e, url) => {
+    if (isAllowed(url)) return;
+    e.preventDefault();
+    let host = url;
+    try { host = new URL(url).hostname; } catch (err) { /* ignore */ }
+    wc.executeJavaScript('(function(){var d=document.createElement("div");d.textContent=' + JSON.stringify('Link extern blocat: ' + host) +
+      ';d.style.cssText="position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.8);color:#fff;' +
+      'font:14px system-ui;padding:8px 14px;border-radius:10px;pointer-events:none";document.body.appendChild(d);setTimeout(function(){d.remove()},2500)})()')
+      .catch(() => {});
+  };
   wc.on('will-navigate', guard);
   wc.on('will-redirect', (e, url, isInPlace, isMainFrame) => { if (isMainFrame) guard(e, url); });
 
@@ -107,7 +126,7 @@ function createWindow() {
   });
 
   win.on('close', () => saveBounds(win));
-  win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle('ReelFren'); });
+  win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(APP_NAME); });
 
   wc.loadURL(HOME_URL);
 }

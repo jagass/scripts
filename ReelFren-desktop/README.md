@@ -1,4 +1,7 @@
-# ReelFren pentru Windows
+# ReelFren / ShortMax pentru Windows
+
+Aceeasi aplicatie, construita pentru mai multe site-uri (configurarea in `sites/*.json`):
+`ReelFren.exe` (reelfren.net) si `ShortMax.exe` (shortmax.shorttw.live). Fiecare are login-ul si setarile ei separate.
 
 Fereastra dedicata pentru https://reelfren.net, cu aceleasi protectii ca aplicatia Android:
 linkuri externe si pop-up-uri blocate, retele de reclame blocate, ferestre false ("VPN...") ascunse,
@@ -23,8 +26,13 @@ La prima pornire Windows poate afisa "Windows a protejat PC-ul" (aplicatia nu e 
 | F5 | reincarca pagina |
 | Alt + ← | inapoi |
 
-## Rulare locala (optional)
+## Rulare / build local (optional)
 ```bash
 npm install
-npm start
+SITE=shortmax npm start        # ruleaza
+node build-site.js shortmax    # construieste dist/ShortMax.exe
 ```
+
+## Adaugare site nou
+Creeaza `sites/<nume>.json` (home, domains, productName, appId, icon) si adauga-l in matricea din
+`.github/workflows/reelfren-desktop.yml`.
