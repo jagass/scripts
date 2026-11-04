@@ -24,6 +24,7 @@ import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -54,9 +55,20 @@ public class MainActivity extends Activity {
     private View fullscreenView;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
 
-    /** Containerul de fullscreen: video + butoanele noastre (derulare / episod urmator). */
+    /** Containerul de fullscreen clasic (folosit doar daca modul cinema nu e suportat). */
     private FrameLayout fullscreenBox;
     private View controls;
+
+    /** Mod cinema: video-ul site-ului pe tot ecranul, vertical, cu controalele aplicatiei. */
+    private boolean cinema = false;
+    private boolean cinemaSupported = false;
+    private View tapCatcher;
+    private View cinemaControls;
+    private SeekBar seekBar;
+    private TextView timeLabel;
+    private Button playButton;
+    private boolean userSeeking = false;
+    private double videoDuration = 0;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable hideControls = () -> { if (controls != null) controls.setVisibility(View.GONE); };
 
@@ -90,6 +102,18 @@ public class MainActivity extends Activity {
         root.addView(errorView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
+        // Strat transparent peste pagina in modul cinema: o atingere arata/ascunde controalele.
+        tapCatcher = new View(this);
+        tapCatcher.setVisibility(View.GONE);
+        tapCatcher.setOnClickListener(v -> toggleCinemaControls());
+        root.addView(tapCatcher, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        cinemaControls = buildCinemaControls();
+        cinemaControls.setVisibility(View.GONE);
+        root.addView(cinemaControls, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
+
         setContentView(root);
 
         WebSettings s = webView.getSettings();
@@ -115,11 +139,8 @@ public class MainActivity extends Activity {
         filterJs = readAsset("filter.js");
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
-                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
-                        if ("hello".equals(message.getData()) && !frames.contains(replyProxy)) {
-                            frames.add(replyProxy);
-                        }
-                    });
+                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> onBridgeMessage(message.getData(), replyProxy));
+            cinemaSupported = true;
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, playerJs, Collections.singleton("*"));
@@ -201,6 +222,12 @@ public class MainActivity extends Activity {
 
         @Override
         public void onShowCustomView(View view, CustomViewCallback callback) {
+            if (cinemaSupported) {
+                // nu folosim fullscreen-ul WebView (se rotea si ramanea negru la episodul urmator)
+                callback.onCustomViewHidden();
+                enterCinema();
+                return;
+            }
             if (fullscreenView != null) {
                 callback.onCustomViewHidden();
                 return;
@@ -226,7 +253,7 @@ public class MainActivity extends Activity {
             showControls();
             webView.setVisibility(View.GONE);
             setVideoFullscreen(true);
-            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         }
 
         @Override
@@ -261,6 +288,159 @@ public class MainActivity extends Activity {
             decor.setSystemUiVisibility(0);
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         }
+    }
+
+    // --- mod cinema ----------------------------------------------------------
+    private void onBridgeMessage(String data, JavaScriptReplyProxy proxy) {
+        if (data == null) return;
+        if (data.equals("hello")) {
+            if (!frames.contains(proxy)) frames.add(proxy);
+            if (cinema) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
+        } else if (data.equals("fs:enter")) {
+            enterCinema();
+        } else if (data.equals("fs:exit")) {
+            exitCinema();
+        } else if (data.startsWith("t:")) {
+            String[] p = data.split(":");
+            if (p.length < 4) return;
+            try {
+                double cur = Double.parseDouble(p[1]);
+                double dur = Double.parseDouble(p[2]);
+                boolean paused = "1".equals(p[3]);
+                videoDuration = dur;
+                if (!userSeeking && dur > 0) seekBar.setProgress((int) Math.round(cur / dur * 1000));
+                timeLabel.setText(fmt(cur) + " / " + fmt(dur));
+                playButton.setText(paused ? "\u25B6" : "\u23F8");
+            } catch (NumberFormatException ignored) { }
+        }
+    }
+
+    private void broadcast(String msg) {
+        for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
+            try { p.postMessage(msg); } catch (Exception ignored) { }
+        }
+    }
+
+    private void enterCinema() {
+        if (cinema) return;
+        cinema = true;
+        broadcast("cinema:1");
+        setVideoFullscreen(true);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        tapCatcher.setVisibility(View.VISIBLE);
+        cinemaControls.setVisibility(View.GONE);
+    }
+
+    private void exitCinema() {
+        if (!cinema) return;
+        cinema = false;
+        broadcast("cinema:0");
+        handler.removeCallbacks(hideCinemaControls);
+        tapCatcher.setVisibility(View.GONE);
+        cinemaControls.setVisibility(View.GONE);
+        setVideoFullscreen(false);
+        setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+    }
+
+    private final Runnable hideCinemaControls = () -> {
+        if (!userSeeking) cinemaControls.setVisibility(View.GONE);
+    };
+
+    private void toggleCinemaControls() {
+        if (cinemaControls.getVisibility() == View.VISIBLE) {
+            cinemaControls.setVisibility(View.GONE);
+        } else {
+            showCinemaControls();
+        }
+    }
+
+    private void showCinemaControls() {
+        cinemaControls.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideCinemaControls);
+        handler.postDelayed(hideCinemaControls, 4000);
+    }
+
+    private View buildCinemaControls() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(16), dp(12), dp(16), dp(24));
+        box.setBackgroundColor(Color.parseColor("#B3000000"));
+        box.setClickable(true); // atingerile pe bara nu ajung la stratul de dedesubt
+
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        timeLabel = new TextView(this);
+        timeLabel.setTextColor(Color.WHITE);
+        timeLabel.setTextSize(13);
+        timeLabel.setText("0:00 / 0:00");
+        top.addView(timeLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Button close = cinemaButton("\u2715 Ie\u0219i", this::exitCinema);
+        top.addView(close);
+        box.addView(top);
+
+        seekBar = new SeekBar(this);
+        seekBar.setMax(1000);
+        seekBar.setPadding(dp(8), dp(12), dp(8), dp(12));
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (fromUser && videoDuration > 0) {
+                    timeLabel.setText(fmt(progress / 1000.0 * videoDuration) + " / " + fmt(videoDuration));
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {
+                userSeeking = true;
+                handler.removeCallbacks(hideCinemaControls);
+            }
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                userSeeking = false;
+                if (videoDuration > 0) broadcast("seekto:" + (sb.getProgress() / 1000.0 * videoDuration));
+                showCinemaControls();
+            }
+        });
+        box.addView(seekBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        row.addView(cinemaButton("\u23EA 10", () -> broadcast("seek:-10")), weight());
+        playButton = cinemaButton("\u23F8", () -> broadcast("toggle"));
+        row.addView(playButton, weight());
+        row.addView(cinemaButton("10 \u23E9", () -> broadcast("seek:10")), weight());
+        row.addView(cinemaButton("\u23ED Urm\u0103torul", this::nextEpisode), weight());
+        box.addView(row);
+        return box;
+    }
+
+    private LinearLayout.LayoutParams weight() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1);
+        lp.setMargins(dp(4), dp(4), dp(4), 0);
+        return lp;
+    }
+
+    private Button cinemaButton(String text, Runnable action) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(15);
+        b.setBackgroundColor(Color.parseColor("#33FFFFFF"));
+        b.setPadding(dp(8), 0, dp(8), 0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(dp(40));
+        b.setOnClickListener(v -> { action.run(); showCinemaControls(); });
+        return b;
+    }
+
+    private static String fmt(double sec) {
+        if (!(sec >= 0) || Double.isInfinite(sec)) sec = 0;
+        int s = (int) sec;
+        int h = s / 3600, m = (s % 3600) / 60, r = s % 60;
+        return h > 0 ? String.format(java.util.Locale.US, "%d:%02d:%02d", h, m, r)
+                : String.format(java.util.Locale.US, "%d:%02d", m, r);
     }
 
     private void showControls() {
@@ -319,6 +499,7 @@ public class MainActivity extends Activity {
     private void nextEpisode() {
         webView.evaluateJavascript("window.__rfNext ? window.__rfNext() : false", result -> {
             if ("true".equals(result)) {
+                // in modul cinema ramanem pe ecran mare: noul video e preluat automat
                 if (fullscreenView != null) chromeClient.onHideCustomView();
                 Toast.makeText(this, "Episodul urm\u0103tor\u2026", Toast.LENGTH_SHORT).show();
             } else {
@@ -379,7 +560,9 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
-        if (fullscreenView != null) {
+        if (cinema) {
+            exitCinema();
+        } else if (fullscreenView != null) {
             chromeClient.onHideCustomView();
         } else if (errorView.getVisibility() == View.VISIBLE && webView.canGoBack()) {
             errorView.setVisibility(View.GONE);
