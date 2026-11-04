@@ -45,9 +45,39 @@
     return out;
   }
 
-  function scan() {
+  function cardKey(a) {
+    var m = (a.getAttribute('href') || '').match(/\/drama\/([^\/?#]+)\/([^\/?#]+)/);
+    return m ? m[1] + '/' + m[2] : null;
+  }
+
+  // Card = cel mai mare stramos al linkului care contine un singur serial (un singur /drama/<id>).
+  function cardsFromLinks() {
+    var links = document.querySelectorAll('a[href*="/drama/"]');
+    var owner = new Map(); // element -> cheia serialului, sau '*' daca are mai multe
+    var items = [];
+    for (var i = 0; i < links.length; i++) {
+      var a = links[i];
+      if (panel && panel.contains(a)) continue;
+      var key = cardKey(a);
+      if (!key) continue;
+      items.push([a, key]);
+      for (var p = a; p && p !== document.body; p = p.parentElement) {
+        var k = owner.get(p);
+        if (k === undefined) owner.set(p, key);
+        else if (k !== key) { owner.set(p, '*'); }
+      }
+    }
+    var found = [], seen = new Set();
+    items.forEach(function (it) {
+      var card = it[0], p = card.parentElement;
+      while (p && p !== document.body && owner.get(p) === it[1]) { card = p; p = p.parentElement; }
+      if (!seen.has(card)) { seen.add(card); found.push({ el: card, key: it[1] }); }
+    });
+    return found;
+  }
+
+  function cardsFromBadges() {
     var badges = findBadges();
-    // cate badge-uri contine fiecare stramos: O(n * adancime), nu O(n^2)
     var count = new Map();
     badges.forEach(function (b) {
       for (var p = b.parentElement; p && p !== document.body; p = p.parentElement) count.set(p, (count.get(p) || 0) + 1);
@@ -56,18 +86,30 @@
     badges.forEach(function (b) {
       var card = b, p = b.parentElement;
       while (p && p !== document.body && count.get(p) === 1) { card = p; p = p.parentElement; }
-      if (!seen.has(card)) { seen.add(card); found.push(card); }
+      if (!seen.has(card)) { seen.add(card); found.push({ el: card, key: null }); }
     });
-    cards = found.map(function (el) {
-      if (!el.__rfInfo) el.__rfInfo = parseCard(el, nextIdx++);
-      return el.__rfInfo;
+    return found;
+  }
+
+  var mode = '';
+  function scan() {
+    var found = cardsFromLinks();
+    mode = 'link';
+    if (found.length < 3) { found = cardsFromBadges(); mode = 'badge'; }
+    cards = [];
+    found.forEach(function (f) {
+      var info = f.el.__rfInfo;
+      if (!info || info.key !== f.key) info = f.el.__rfInfo = parseCard(f.el, nextIdx++, f.key);
+      // in modul "link" pastram si cardurile la care nu am gasit numarul de episoade (ep = 0):
+      // la un filtru de episoade minim sunt ascunse, ca sa nu ramana "scapari"
+      if (mode === 'link' || info.ep > 0) cards.push(info);
     });
     return cards.length;
   }
 
   var nextIdx = 0;
-  function parseCard(el, idx) {
-    var info = { el: el, idx: idx, ep: 0, rating: 0, plat: '', title: '' };
+  function parseCard(el, idx, key) {
+    var info = { el: el, key: key, idx: idx, ep: 0, rating: 0, plat: '', title: '' };
     var longest = '', w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     while (w.nextNode()) {
       var t = w.currentNode.nodeValue.replace(/\s+/g, ' ').trim();
@@ -85,8 +127,18 @@
       if (upper && !info.plat) { info.plat = t.toUpperCase(); continue; }
       if (t.length > longest.length) longest = t;
     }
+    // numarul de episoade poate fi impartit in elemente diferite ("52" + "EP"): cautam in tot textul cardului
+    if (!info.ep || !info.rating) {
+      var parts = [], w2 = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      while (w2.nextNode()) { var v = w2.currentNode.nodeValue.trim(); if (v) parts.push(v); }
+      var all = ' ' + parts.join(' ') + ' ', mm;
+      if (!info.ep && (mm = all.match(/\s(\d{1,4})\s*(EP|Eps?\.?|Episodes?|Episoade)(?=\s|$)/i))) info.ep = parseInt(mm[1], 10);
+      if (!info.rating && (mm = all.match(/[\u2605\u2B50]\s*(\d(?:[.,]\d)?)\b/))) info.rating = parseFloat(mm[1].replace(',', '.'));
+    }
+    // platforma din link (/drama/<platforma>/...) e mai sigura decat textul de pe card
+    if (key) info.plat = key.split('/')[0].toUpperCase();
     var img = el.querySelector('img[alt]');
-    info.title = (longest || (img && img.alt) || '').toLowerCase();
+    info.title = ((longest || '') + ' ' + ((img && img.alt) || '') + ' ' + (key ? key.split('/')[1].replace(/^\d+-?/, '').replace(/-/g, ' ') : '')).toLowerCase();
     return info;
   }
 
@@ -113,8 +165,8 @@
       var ok = c.ep >= min && c.ep <= max;
       if (ok && state.plats.length) ok = state.plats.indexOf(c.plat) >= 0;
       if (ok && words.length) ok = words.some(function (w) { return c.title.indexOf(w) >= 0; });
-      var d = ok ? '' : 'none';
-      if (c.el.style.display !== d) c.el.style.display = d;
+      if (ok) { if (c.el.hasAttribute('data-rf-hide')) c.el.removeAttribute('data-rf-hide'); }
+      else if (!c.el.hasAttribute('data-rf-hide')) c.el.setAttribute('data-rf-hide', '');
       if (ok) shown++;
     });
 
@@ -129,7 +181,7 @@
     // CSS order: nu mutam elementele in DOM (site-ul e o aplicatie React si s-ar strica)
     sorted.forEach(function (c, i) {
       var o = state.sort === 'default' ? '' : String(i);
-      if (c.el.style.order !== o && isGrid(c.el.parentElement)) c.el.style.order = o;
+      if (c.el.style.order !== o && isGrid(c.el.parentElement)) c.el.style.setProperty('order', o, o ? 'important' : '');
     });
 
     btn.classList.toggle('on', !!isActive());
@@ -202,13 +254,16 @@
       '#rf-panel .rf-two{display:flex;gap:8px}' +
       '#rf-panel .rf-act{display:flex;gap:8px;margin-top:18px}' +
       '#rf-panel .rf-act button{flex:1;padding:12px;border-radius:12px;border:0;font:600 15px system-ui}' +
-      '#rf-count{font-size:13px;color:#94a3b8}';
+      '#rf-count{font-size:13px;color:#94a3b8}' +
+      '[data-rf-hide]{display:none!important}' +
+      '#rf-btn,#rf-panel button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}' +
+      '#rf-diag{width:100%;height:160px;margin-top:8px;font:11px monospace;background:#020617;color:#a7f3d0;border:1px solid #334155;border-radius:8px}';
     document.head.appendChild(css);
 
     btn = document.createElement('button');
     btn.id = 'rf-btn';
     btn.textContent = '⚙️ Filtru';
-    btn.onclick = function () { panel.style.display = 'block'; };
+    tap(btn, function () { panel.style.display = 'block'; syncInputs(); renderPlatforms(); });
     document.body.appendChild(btn);
 
     panel = document.createElement('div');
@@ -234,7 +289,9 @@
       '</div>' +
       '<div class="rf-l">Platforma</div><div class="rf-row" id="rf-plats"></div>' +
       '<div class="rf-act"><button id="rf-reset" style="background:#1f2937;color:#e5e7eb">Reseteaza</button>' +
-      '<button id="rf-close" style="background:#14b8a6;color:#04201d">Gata</button></div>';
+      '<button id="rf-close" style="background:#14b8a6;color:#04201d">Gata</button></div>' +
+      '<button class="rf-chip" id="rf-diag-btn" style="margin-top:14px;width:100%;opacity:.7">\uD83D\uDCCB Diagnostic (pentru depanare)</button>' +
+      '<div id="rf-diag-box"></div>';
     document.body.appendChild(panel);
     countEl = panel.querySelector('#rf-count');
     platBox = panel.querySelector('#rf-plats');
@@ -242,7 +299,7 @@
     function chip(v, label) { return '<button class="rf-chip" data-sort="' + v + '">' + label + '</button>'; }
     function quick(a, b, label) { return '<button class="rf-chip" data-min="' + a + '" data-max="' + b + '">' + label + '</button>'; }
 
-    panel.addEventListener('click', function (e) {
+    tap(panel, function (e) {
       var t = e.target.closest('button');
       if (!t) return;
       if (t.dataset.sort) state.sort = t.dataset.sort;
@@ -260,6 +317,7 @@
       else if (t.id === 'rf-reset') state = { sort: 'default', min: '', max: '', plats: [], q: '' };
       else if (t.id === 'rf-close') { panel.style.display = 'none'; return; }
       else if (t.id === 'rf-load') { loadAll(); return; }
+      else if (t.id === 'rf-diag-btn') { showDiag(); return; }
       save(); syncInputs(); apply();
     });
     ['rf-min', 'rf-max', 'rf-q'].forEach(function (id) {
@@ -269,6 +327,44 @@
       });
     });
     syncInputs();
+  }
+
+  // Raspunde la atingere imediat; ignora click-ul "fantoma" care vine dupa touchend.
+  function tap(el, fn) {
+    var lastTouch = 0, sx = 0, sy = 0;
+    el.addEventListener('touchstart', function (e) {
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY;
+    }, { passive: true });
+    el.addEventListener('touchend', function (e) {
+      var t = e.target.closest('button');
+      if (!t) return;
+      var ct = e.changedTouches[0];
+      if (Math.abs(ct.clientX - sx) > 12 || Math.abs(ct.clientY - sy) > 12) return; // a fost scroll, nu apasare
+      lastTouch = Date.now();
+      e.preventDefault();
+      e.stopPropagation();
+      fn(e);
+    }, { passive: false });
+    el.addEventListener('click', function (e) {
+      if (Date.now() - lastTouch < 700) return;
+      e.stopPropagation();
+      fn(e);
+    });
+  }
+
+  function showDiag() {
+    var box = panel.querySelector('#rf-diag-box');
+    var sample = cards.slice(0, 2).map(function (c) {
+      return { ep: c.ep, rating: c.rating, plat: c.plat, title: c.title.slice(0, 60), hidden: c.el.hasAttribute('data-rf-hide'),
+        display: getComputedStyle(c.el).display, html: c.el.outerHTML.replace(/\s+/g, ' ').slice(0, 1500) };
+    });
+    var d = { url: location.href, mode: mode, cards: cards.length, links: document.querySelectorAll('a[href*="/drama/"]').length,
+      state: state, sample: sample };
+    box.innerHTML = '<div class="rf-l">Copiaza textul de mai jos si trimite-l</div><textarea id="rf-diag" readonly></textarea>';
+    var ta = box.querySelector('#rf-diag');
+    ta.value = JSON.stringify(d, null, 1);
+    ta.focus(); ta.select();
+    try { navigator.clipboard.writeText(ta.value); } catch (e) {}
   }
 
   function syncInputs() {
@@ -303,8 +399,13 @@
         var t = muts[i].target;
         if (panel && panel.contains(t)) continue;
         if (btn && (t === btn || btn.contains(t))) continue;
-        schedule();
-        return;
+        var added = muts[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n.nodeType !== 1) continue;
+          if ((n.matches && n.matches('a[href*="/drama/"]')) || (n.querySelector && n.querySelector('a[href*="/drama/"]')) ||
+              /\d\s*EP/i.test(n.textContent || '')) { schedule(); return; }
+        }
       }
     }).observe(document.body, { childList: true, subtree: true });
   }
