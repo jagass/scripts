@@ -14,6 +14,22 @@
   var setAttr = Element.prototype.setAttribute;
   var getAttr = Element.prototype.getAttribute;
 
+  var errBox = null, errTimer = null;
+  function showError(text) {
+    if (!document.body) return;
+    if (!errBox) {
+      errBox = document.createElement('div');
+      errBox.id = 'rf-hls-error';
+      errBox.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;background:rgba(150,20,20,.92);' +
+        'color:#fff;font:13px/1.4 system-ui,sans-serif;padding:8px 12px;border-radius:10px;pointer-events:none;word-break:break-all';
+      document.body.appendChild(errBox);
+    }
+    errBox.textContent = 'Eroare video (pentru depanare): ' + text;
+    errBox.style.display = 'block';
+    clearTimeout(errTimer);
+    errTimer = setTimeout(function () { errBox.style.display = 'none'; }, 12000);
+  }
+
   function detach(v) {
     if (v.__rfHls) { try { v.__rfHls.destroy(); } catch (e) {} }
     v.__rfHls = null;
@@ -31,6 +47,12 @@
     var mediaErrors = 0;
     h.on(Hls.Events.ERROR, function (ev, d) {
       if (!d || !d.fatal) return;
+      // motivul exact, pe ecran si in diagnostic (F12 -> Console)
+      var why = d.type + ' / ' + d.details + (d.response && d.response.code !== undefined ? ' (HTTP ' + d.response.code + ')' : '') +
+        (d.url ? ' ' + String(d.url).replace(/^https?:\/\//, '').slice(0, 70) : '');
+      window.__rfHlsLastError = why;
+      try { console.warn('[ReelFren HLS]', why, d); } catch (e) {}
+      showError(why);
       if (d.type === Hls.ErrorTypes.NETWORK_ERROR) h.startLoad();
       else if (d.type === Hls.ErrorTypes.MEDIA_ERROR && mediaErrors++ < 3) h.recoverMediaError();
     });

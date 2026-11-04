@@ -25,6 +25,7 @@ La prima pornire Windows poate afisa "Windows a protejat PC-ul" (aplicatia nu e 
 | Esc | iesire din ecran complet |
 | F5 | reincarca pagina |
 | Alt + ← | inapoi |
+| F12 | instrumente de depanare (erori) |
 
 ## Rulare / build local (optional)
 ```bash

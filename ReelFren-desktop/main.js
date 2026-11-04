@@ -126,6 +126,7 @@ function createWindow() {
     if (input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
     else if (input.key === 'Escape' && win.isFullScreen()) { win.setFullScreen(false); e.preventDefault(); }
     else if (input.key === 'F5') { wc.reload(); e.preventDefault(); }
+    else if (input.key === 'F12') { wc.toggleDevTools(); e.preventDefault(); }
     else if (input.alt && input.key === 'ArrowLeft' && wc.navigationHistory.canGoBack()) { wc.navigationHistory.goBack(); e.preventDefault(); }
   });
 
@@ -154,19 +155,34 @@ if (!gotLock) {
     AD_HOSTS.forEach((h) => { adUrls.push('*://' + h + '/*', '*://*.' + h + '/*'); });
     ses.webRequest.onBeforeRequest({ urls: adUrls }, (details, cb) => cb({ cancel: true }));
 
-    // Pagina de verificare Cloudflare se recunoaste dupa raspunsul serverului ("cf-mitigated: challenge").
-    // Pe ea nu punem niciun script (altfel Cloudflare crede ca e un robot si cere verificarea la nesfarsit).
-    const siteUrls = [];
-    ALLOWED_DOMAINS.forEach((d) => { siteUrls.push('*://' + d + '/*', '*://*.' + d + '/*'); });
-    ses.webRequest.onHeadersReceived({ urls: siteUrls }, (details, cb) => {
-      if (details.resourceType === 'mainFrame') {
-        const h = details.responseHeaders || {};
-        const isChallenge = Object.keys(h).some((k) => k.toLowerCase() === 'cf-mitigated' &&
-          String(h[k]).toLowerCase().indexOf('challenge') >= 0);
-        challengeByWc.set(details.webContentsId, isChallenge);
+    // 1) Pagina de verificare Cloudflare se recunoaste dupa raspunsul serverului ("cf-mitigated: challenge").
+    //    Pe ea nu punem niciun script (altfel Cloudflare crede ca e un robot si cere verificarea la nesfarsit).
+    // 2) Fisierele video (.m3u8 si bucatile episodului) sunt cerute de playerul HLS din pagina; serverele video
+    //    nu trimit de obicei permisiunea CORS (pe telefon nu e nevoie de ea), asa ca o adaugam noi.
+    const hasHeader = (h, name) => Object.keys(h).some((k) => k.toLowerCase() === name);
+    ses.webRequest.onHeadersReceived({ urls: ['*://*/*'] }, (d, cb) => {
+      const h = d.responseHeaders || {};
+      if (d.resourceType === 'mainFrame') {
+        if (isAllowed(d.url)) {
+          const isChallenge = Object.keys(h).some((k) => k.toLowerCase() === 'cf-mitigated' &&
+            String(h[k]).toLowerCase().indexOf('challenge') >= 0);
+          challengeByWc.set(d.webContentsId, isChallenge);
+        }
+        return cb({});
+      }
+      if ((d.resourceType === 'xhr' || d.resourceType === 'fetch' || d.resourceType === 'media') &&
+          !isAllowed(d.url) && !hasHeader(h, 'access-control-allow-origin')) {
+        const nh = Object.assign({}, h);
+        nh['Access-Control-Allow-Origin'] = ['*'];
+        if (d.method === 'OPTIONS') {
+          nh['Access-Control-Allow-Headers'] = ['*'];
+          nh['Access-Control-Allow-Methods'] = ['GET, HEAD, OPTIONS'];
+        }
+        return cb({ responseHeaders: nh });
       }
       cb({});
     });
+
     // Notificari, locatie etc.: refuzate (site-urile de reclame le cer des).
     ses.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
 
