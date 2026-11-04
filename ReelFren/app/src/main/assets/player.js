@@ -283,10 +283,29 @@
     target.click();
     return true;
   }
-  window.__rfPrev = function () { return byNumber(-1); };
+
+  // Daca adresa paginii contine numarul episodului (?ep=3, /episode/3, /ep-3), mergem direct la urmatorul.
+  function byUrl(step) {
+    var u = location.href, pats = [
+      /([?&](?:ep|episode|eps|e|episodeNumber|episode_number|episodeNo|index|num|no)=)(\d+)/i,
+      /(\/(?:ep|episode|episodes|eps|e|chapter)[\/_-]?)(\d+)(?=[\/?#]|$)/i
+    ];
+    for (var i = 0; i < pats.length; i++) {
+      var m = u.match(pats[i]);
+      if (!m) continue;
+      var n = parseInt(m[2], 10) + step;
+      if (n < 0) return false;
+      location.href = u.replace(pats[i], m[1] + n);
+      return true;
+    }
+    return false;
+  }
+
+  window.__rfPrev = function () { return byNumber(-1) || byUrl(-1); };
 
   window.__rfNext = function () {
     if (byNumber(1)) return true;
+    if (byUrl(1)) return true;
     var el = findNext();
     if (!el) return false;
     if (el.tagName === 'LINK') { location.href = el.href; return true; }
@@ -296,6 +315,40 @@
   };
 
   window.__rfSetCinema = setCinema; // folosit si la teste
+
+  // Diagnostic: o descriere scurta a paginii de episod, ca sa putem adapta "episodul urmator".
+  window.__rfDiag = function () {
+    function cls(e) { return (typeof e.className === 'string' ? e.className : '').slice(0, 60); }
+    function path(e) {
+      var out = [];
+      for (var p = e, i = 0; p && p !== document.body && i < 6; p = p.parentElement, i++) {
+        out.push(p.tagName.toLowerCase() + (p.id ? '#' + p.id : '') + (cls(p) ? '.' + cls(p).trim().replace(/\s+/g, '.') : ''));
+      }
+      return out.join(' < ');
+    }
+    var d = { url: location.href, title: document.title.slice(0, 80) };
+    d.videos = Array.prototype.slice.call(document.querySelectorAll('video')).slice(0, 6).map(function (v) {
+      var r = v.getBoundingClientRect();
+      return { src: (v.currentSrc || v.src || '').slice(0, 90), paused: v.paused, t: Math.round(v.currentTime), dur: Math.round(v.duration || 0),
+        rect: [Math.round(r.top), Math.round(r.height)], path: path(v) };
+    });
+    d.iframes = Array.prototype.slice.call(document.querySelectorAll('iframe')).slice(0, 6).map(function (f) {
+      return (f.src || '').slice(0, 90);
+    });
+    d.swiper = !!document.querySelector('[class*=swiper],[class*=slick],[class*=carousel],[class*=snap]');
+    var seen = {}, btns = [];
+    Array.prototype.slice.call(document.querySelectorAll('a,button,[role=button],[onclick],li')).forEach(function (e) {
+      var t = (e.innerText || e.getAttribute('aria-label') || e.title || '').replace(/\s+/g, ' ').trim().slice(0, 30);
+      var key = t + '|' + e.tagName;
+      if (seen[key] || btns.length >= 70) return;
+      seen[key] = 1;
+      var h = e.getAttribute && e.getAttribute('href');
+      btns.push(e.tagName.toLowerCase() + ' "' + t + '"' + (cls(e) ? ' .' + cls(e).slice(0, 40) : '') + (h ? ' ' + h.slice(0, 60) : ''));
+    });
+    d.buttons = btns;
+    var s = JSON.stringify(d);
+    return s.length > 7000 ? s.slice(0, 7000) : s;
+  };
 
   if (bridge) {
     bridge.onmessage = function (e) {

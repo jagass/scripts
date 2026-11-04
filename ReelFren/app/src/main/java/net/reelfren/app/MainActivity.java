@@ -427,8 +427,12 @@ public class MainActivity extends Activity {
         timeLabel.setTextSize(13);
         timeLabel.setText("0:00 / 0:00");
         top.addView(timeLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        top.addView(cinemaButton("\uD83D\uDEE0", this::showDiagnostic));
         Button close = cinemaButton("\u2715 Ie\u0219i", this::exitCinema);
-        top.addView(close);
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        closeLp.leftMargin = dp(8);
+        top.addView(close, closeLp);
         box.addView(top);
 
         seekBar = new SeekBar(this);
@@ -463,6 +467,37 @@ public class MainActivity extends Activity {
         row.addView(cinemaButton("\u23ED Urm\u0103torul", this::nextEpisode), weight());
         box.addView(row);
         return box;
+    }
+
+    /** Arata un text despre pagina de episod (butoane, video-uri), pe care il poti copia si trimite. */
+    private void showDiagnostic() {
+        webView.evaluateJavascript("window.__rfDiag ? window.__rfDiag() : 'diagnostic indisponibil'", result -> {
+            String text;
+            try {
+                text = new org.json.JSONArray("[" + result + "]").getString(0);
+            } catch (Exception e) {
+                text = String.valueOf(result);
+            }
+            final String diag = text;
+            TextView tv = new TextView(this);
+            tv.setText(diag);
+            tv.setTextIsSelectable(true);
+            tv.setTextSize(11);
+            tv.setPadding(dp(16), dp(8), dp(16), dp(8));
+            android.widget.ScrollView sv = new android.widget.ScrollView(this);
+            sv.addView(tv);
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Diagnostic")
+                    .setView(sv)
+                    .setPositiveButton("Copiaz\u0103", (d, w) -> {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("ReelFren diagnostic", diag));
+                        Toast.makeText(this, "Copiat. Lipe\u0219te-l \u00een chat.", Toast.LENGTH_LONG).show();
+                    })
+                    .setNegativeButton("\u00CEnchide", null)
+                    .show();
+        });
     }
 
     private LinearLayout.LayoutParams weight() {
