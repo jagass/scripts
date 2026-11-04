@@ -35,18 +35,18 @@
     var s = document.createElement('style');
     s.id = 'rf-cinema-css';
     s.textContent =
-      'html.rf-cinema-on,html.rf-cinema-on body{overflow:hidden!important}' +
-      '.rf-cinema-target{position:fixed!important;left:0!important;top:0!important;right:auto!important;bottom:auto!important;' +
+      'html[data-rf-cinema],html[data-rf-cinema] body{overflow:hidden!important}' +
+      '[data-rf-target]{position:fixed!important;left:0!important;top:0!important;right:auto!important;bottom:auto!important;' +
       'width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;' +
       'margin:0!important;padding:0!important;border:0!important;border-radius:0!important;transform:none!important;' +
       'z-index:2147483600!important;background:#000!important;object-fit:contain!important;visibility:visible!important;opacity:1!important}' +
-      '.rf-cinema-anc{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;' +
+      '[data-rf-anc]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;' +
       'will-change:auto!important;z-index:2147483600!important;overflow:visible!important}' +
-      'html.rf-cinema-on #rf-btn,html.rf-cinema-on #rf-panel{display:none!important}' +
-      'html.rf-cinema-on::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
+      'html[data-rf-cinema] #rf-btn,html[data-rf-cinema] #rf-panel{display:none!important}' +
+      'html[data-rf-cinema]::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
       // in modul cinema nu se vede nimic altceva decat video-ul (nici reclame puse peste el)
-      'html.rf-cinema-on body *:not(.rf-cinema-anc):not(.rf-cinema-target){visibility:hidden!important;pointer-events:none!important}' +
-      'html.rf-cinema-on .rf-cinema-target{visibility:visible!important}';
+      'html[data-rf-cinema] body *:not([data-rf-anc]):not([data-rf-target]){visibility:hidden!important;pointer-events:none!important}' +
+      'html[data-rf-cinema] [data-rf-target]{visibility:visible!important}';
     (document.head || document.documentElement).appendChild(s);
   }
 
@@ -94,7 +94,7 @@
       var kids = parents[i].children;
       for (var j = 0; j < kids.length; j++) {
         var k = kids[j];
-        if (k === target || k.__rfHid || SKIP_TAGS[k.tagName] || k.classList.contains('rf-cinema-anc')) continue;
+        if (k === target || k.__rfHid || SKIP_TAGS[k.tagName] || k.hasAttribute('data-rf-anc')) continue;
         k.__rfHid = true;
         hiddenByUs.push([k, k.style.getPropertyValue('display'), k.style.getPropertyPriority('display')]);
         k.style.setProperty('display', 'none', 'important');
@@ -117,28 +117,41 @@
 
   function clearTarget() {
     restoreOthers();
-    if (target) target.classList.remove('rf-cinema-target');
-    marked.forEach(function (el) { el.classList.remove('rf-cinema-anc'); });
+    if (target) target.removeAttribute('data-rf-target');
+    marked.forEach(function (el) { el.removeAttribute('data-rf-anc'); });
     marked = [];
     target = null;
   }
 
+  function chainOf(el) {
+    var out = [];
+    for (var p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) out.push(p);
+    return out;
+  }
+
   function setTarget(el) {
-    if (el === target && el && el.isConnected) return;
+    if (el && el === target && el.isConnected) {
+      // site-ul isi redeseneaza playerul si poate sterge marcajele sau muta video-ul: le refacem
+      var chain = chainOf(el);
+      var same = chain.length === marked.length && chain.every(function (p, i) { return p === marked[i]; });
+      if (same) {
+        if (!el.hasAttribute('data-rf-target')) el.setAttribute('data-rf-target', '');
+        marked.forEach(function (p) { if (!p.hasAttribute('data-rf-anc')) p.setAttribute('data-rf-anc', ''); });
+        return;
+      }
+    }
     clearTarget();
     if (!el) return;
     target = el;
-    el.classList.add('rf-cinema-target');
-    for (var p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
-      p.classList.add('rf-cinema-anc');
-      marked.push(p);
-    }
+    el.setAttribute('data-rf-target', '');
+    marked = chainOf(el);
+    marked.forEach(function (p) { p.setAttribute('data-rf-anc', ''); });
   }
 
   function tick() {
     if (!cinema) return;
     ensureCss();
-    document.documentElement.classList.add('rf-cinema-on');
+    if (!document.documentElement.hasAttribute('data-rf-cinema')) document.documentElement.setAttribute('data-rf-cinema', '');
     var v = bestVideo();
     var t = v || (isTop ? bestIframe() : null);
     setTarget(t);
@@ -155,6 +168,21 @@
     }
   }
 
+  // reactie imediata (la urmatorul cadru) cand site-ul schimba ceva in pagina in timpul modului cinema
+  var rafPending = false;
+  function quickFix() {
+    rafPending = false;
+    if (!cinema) return;
+    var v = bestVideo();
+    setTarget(v || (isTop ? bestIframe() : null));
+    hideOthers();
+  }
+  var watcher = window.MutationObserver ? new MutationObserver(function () {
+    if (rafPending || !cinema) return;
+    rafPending = true;
+    requestAnimationFrame(quickFix);
+  }) : null;
+
   function setCinema(on) {
     if (on === cinema) return;
     cinema = on;
@@ -163,9 +191,11 @@
       lastVideo = null;
       tick();
       timer = setInterval(tick, 500);
+      if (watcher) watcher.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
     } else {
+      if (watcher) watcher.disconnect();
       clearTarget();
-      document.documentElement.classList.remove('rf-cinema-on');
+      document.documentElement.removeAttribute('data-rf-cinema');
     }
   }
 

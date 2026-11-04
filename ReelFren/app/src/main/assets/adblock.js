@@ -14,7 +14,7 @@
 
   function isOurs(el) {
     return (el.id && el.id.indexOf('rf-') === 0) ||
-      (el.classList && (el.classList.contains('rf-cinema-target') || el.classList.contains('rf-cinema-anc')));
+      (el.hasAttribute && (el.hasAttribute('data-rf-target') || el.hasAttribute('data-rf-anc')));
   }
 
   function textOf(el) {
