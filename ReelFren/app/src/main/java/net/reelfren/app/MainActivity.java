@@ -17,6 +17,7 @@ import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -74,6 +75,30 @@ public class MainActivity extends Activity {
 
     private String playerJs = "";
     private String filterJs = "";
+    private String adblockJs = "";
+
+    /** Retele de reclame cunoscute: cererile spre ele primesc un raspuns gol. */
+    private static final String[] AD_HOSTS = {
+            "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
+            "popads.net", "popcash.net", "propellerads.com", "propellerclick.com", "onclickads.net", "onclkds.com",
+            "adsterra.com", "adsterratech.com", "monetag.com", "exoclick.com", "exosrv.com", "juicyads.com",
+            "trafficjunky.net", "hilltopads.net", "hilltopads.com", "a-ads.com", "clickadu.com", "galaksion.com",
+            "richpush.co", "pushhouse.io", "evadav.com", "adcash.com", "admaven.com", "ad-maven.com",
+            "adskeeper.com", "mgid.com", "taboola.com", "outbrain.com", "revcontent.com", "zeropark.com",
+            "adnium.com", "trafficstars.com", "tsyndicate.com", "realsrv.com", "a-mo.net", "bidvertiser.com",
+            "pushame.com", "pushnow.net", "notix.io", "sendpulse.com", "onesignal.com", "highperformanceformat.com",
+            "profitablegatecpm.com", "effectivegatecpm.com", "profitablecpmrate.com", "displaycontentnetwork.com",
+            "adtrafficquality.google", "amazon-adsystem.com", "criteo.com", "pubmatic.com", "rubiconproject.com"
+    };
+
+    private static boolean isAdHost(String host) {
+        if (host == null) return false;
+        host = host.toLowerCase();
+        for (String d : AD_HOSTS) {
+            if (host.equals(d) || host.endsWith("." + d)) return true;
+        }
+        return false;
+    }
     private boolean startScriptInjected = false;
     /** Canale catre fiecare frame (pagina + iframe-ul playerului), ca sa putem derula video-ul. */
     private final List<JavaScriptReplyProxy> frames = new ArrayList<>();
@@ -137,6 +162,7 @@ public class MainActivity extends Activity {
 
         playerJs = readAsset("player.js");
         filterJs = readAsset("filter.js");
+        adblockJs = readAsset("adblock.js");
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
                     (view, message, sourceOrigin, isMainFrame, replyProxy) -> onBridgeMessage(message.getData(), replyProxy));
@@ -144,6 +170,7 @@ public class MainActivity extends Activity {
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, playerJs, Collections.singleton("*"));
+            WebViewCompat.addDocumentStartJavaScript(webView, adblockJs, Collections.singleton("*"));
             // Butonul "Filtru" doar pe paginile site-ului (nu si in iframe-uri straine)
             java.util.Set<String> site = new java.util.HashSet<>();
             site.add("https://reelfren.net");
@@ -188,6 +215,15 @@ public class MainActivity extends Activity {
         }
 
         @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            if (isAdHost(request.getUrl().getHost())) {
+                return new WebResourceResponse("text/plain", "utf-8",
+                        new java.io.ByteArrayInputStream(new byte[0]));
+            }
+            return null;
+        }
+
+        @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             frames.clear();
         }
@@ -195,6 +231,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             if (!startScriptInjected) view.evaluateJavascript(playerJs, null);
+            view.evaluateJavascript(adblockJs, null);
             // scriptul se protejeaza singur de dubla rulare, deci e sigur sa-l rulam si aici
             view.evaluateJavascript(filterJs, null);
             CookieManager.getInstance().flush();

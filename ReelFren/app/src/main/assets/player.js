@@ -43,7 +43,10 @@
       '.rf-cinema-anc{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;' +
       'will-change:auto!important;z-index:2147483600!important;overflow:visible!important}' +
       'html.rf-cinema-on #rf-btn,html.rf-cinema-on #rf-panel{display:none!important}' +
-      'html.rf-cinema-on::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}';
+      'html.rf-cinema-on::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
+      // in modul cinema nu se vede nimic altceva decat video-ul (nici reclame puse peste el)
+      'html.rf-cinema-on body *:not(.rf-cinema-anc):not(.rf-cinema-target){visibility:hidden!important;pointer-events:none!important}' +
+      'html.rf-cinema-on .rf-cinema-target{visibility:visible!important}';
     (document.head || document.documentElement).appendChild(s);
   }
 
