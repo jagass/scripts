@@ -66,6 +66,10 @@ public class MainActivity extends Activity {
     /** Mod cinema: video-ul site-ului pe tot ecranul, vertical, cu controalele aplicatiei. */
     private boolean cinema = false;
     private boolean cinemaSupported = false;
+    /** Mod cinema "usor": playerul site-ului e deja pe tot ecranul; swipe-urile merg direct la site. */
+    private boolean cinemaLight = false;
+    private float tapX, tapY;
+    private long tapTime;
     private View tapCatcher;
     private View cinemaControls;
     private SeekBar seekBar;
@@ -111,7 +115,24 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        root = new FrameLayout(this);
+        root = new FrameLayout(this) {
+            @Override
+            public boolean onInterceptTouchEvent(MotionEvent ev) {
+                // in modul usor nu oprim atingerile (swipe-ul ajunge la site); doar recunoastem o atingere scurta
+                if (cinema && cinemaLight) {
+                    if (ev.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        tapX = ev.getX(); tapY = ev.getY(); tapTime = ev.getEventTime();
+                    } else if (ev.getActionMasked() == MotionEvent.ACTION_UP) {
+                        boolean isTap = Math.abs(ev.getX() - tapX) < dp(12) && Math.abs(ev.getY() - tapY) < dp(12)
+                                && ev.getEventTime() - tapTime < 350;
+                        boolean onControls = cinemaControls.getVisibility() == View.VISIBLE
+                                && ev.getY() >= cinemaControls.getTop();
+                        if (isTap && !onControls) toggleCinemaControls();
+                    }
+                }
+                return false;
+            }
+        };
         root.setBackgroundColor(Color.parseColor("#101014"));
 
         webView = new WebView(this);
@@ -348,6 +369,9 @@ public class MainActivity extends Activity {
         if (data.equals("hello")) {
             if (!frames.contains(proxy)) frames.add(proxy);
             if (cinema) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
+        } else if (data.startsWith("mode:")) {
+            cinemaLight = data.equals("mode:light");
+            if (cinema) tapCatcher.setVisibility(cinemaLight ? View.GONE : View.VISIBLE);
         } else if (data.equals("fs:enter")) {
             enterCinema();
         } else if (data.equals("fs:exit")) {
@@ -386,6 +410,7 @@ public class MainActivity extends Activity {
     private void exitCinema() {
         if (!cinema) return;
         cinema = false;
+        cinemaLight = false;
         broadcast("cinema:0");
         handler.removeCallbacks(hideCinemaControls);
         tapCatcher.setVisibility(View.GONE);
@@ -603,7 +628,8 @@ public class MainActivity extends Activity {
         Toast.makeText(this, next ? "Episodul urm\u0103tor\u2026" : "Episodul anterior\u2026", Toast.LENGTH_SHORT).show();
         if (fullscreenView != null) chromeClient.onHideCustomView();
 
-        final boolean wasCinema = cinema;
+        // in modul usor pagina ramane neatinsa, deci nu trebuie sa iesim din ecranul mare
+        final boolean wasCinema = cinema && !cinemaLight;
         webView.evaluateJavascript("window.__rfState ? window.__rfState() : ''", before -> {
             // 1) ridicam pentru o clipa "ecranul mare", ca pagina sa aiba din nou aranjarea ei normala
             if (wasCinema) broadcast("cinema:0");

@@ -12,6 +12,10 @@
   var marked = [];        // stramosii carora le-am anulat transform/z-index
   var timer = null;
   var lastVideo = null;
+  // 'light' = playerul site-ului ocupa deja tot ecranul (ex. reelfren): nu mutam video-ul si nu atingem
+  //           Swiper-ul (swipe-ul site-ului merge normal), ascundem doar ce e in jur.
+  // 'full'  = video mic in pagina: il punem noi pe tot ecranul.
+  var mode = null;
 
   function send(m) { try { if (bridge) bridge.postMessage(m); } catch (e) {} }
 
@@ -35,7 +39,7 @@
     var s = document.createElement('style');
     s.id = 'rf-cinema-css';
     s.textContent =
-      'html[data-rf-cinema],html[data-rf-cinema] body{overflow:hidden!important}' +
+      'html[data-rf-cinema=full],html[data-rf-cinema=full] body{overflow:hidden!important}' +
       '[data-rf-target]{position:fixed!important;left:0!important;top:0!important;right:auto!important;bottom:auto!important;' +
       'width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;' +
       'margin:0!important;padding:0!important;border:0!important;border-radius:0!important;transform:none!important;' +
@@ -43,10 +47,10 @@
       '[data-rf-anc]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;' +
       'will-change:auto!important;z-index:2147483600!important;overflow:visible!important}' +
       'html[data-rf-cinema] #rf-btn,html[data-rf-cinema] #rf-panel{display:none!important}' +
-      'html[data-rf-cinema]::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
+      'html[data-rf-cinema=full]::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
       // in modul cinema nu se vede nimic altceva decat video-ul (nici reclame puse peste el)
-      'html[data-rf-cinema] body *:not([data-rf-anc]):not([data-rf-target]){visibility:hidden!important;pointer-events:none!important}' +
-      'html[data-rf-cinema] [data-rf-target]{visibility:visible!important}';
+      'html[data-rf-cinema=full] body *:not([data-rf-anc]):not([data-rf-target]){visibility:hidden!important;pointer-events:none!important}' +
+      'html[data-rf-cinema=full] [data-rf-target]{visibility:visible!important}';
     (document.head || document.documentElement).appendChild(s);
   }
 
@@ -104,6 +108,11 @@
       for (var j = 0; j < kids.length; j++) {
         var k = kids[j];
         if (k === target || k.__rfHid || SKIP_TAGS[k.tagName] || k.hasAttribute('data-rf-anc')) continue;
+        if (mode === 'light') {
+          // nu atingem slide-urile Swiper-ului si nici alte video-uri (episoadele vecine)
+          if (marked.indexOf(k) >= 0) continue;
+          if (k.classList.contains('swiper-slide') || k.tagName === 'VIDEO' || k.querySelector('video')) continue;
+        }
         k.__rfHid = true;
         hiddenByUs.push([k, k.style.getPropertyValue('display'), k.style.getPropertyPriority('display')]);
         k.style.setProperty('display', 'none', 'important');
@@ -139,6 +148,16 @@
   }
 
   function setTarget(el) {
+    if (mode === 'light') {
+      if (el && el === target && el.isConnected) {
+        var c = chainOf(el);
+        if (c.length === marked.length && c.every(function (p, i) { return p === marked[i]; })) return;
+      }
+      restoreOthers();
+      target = el || null;
+      marked = el ? chainOf(el) : [];
+      return;
+    }
     if (el && el === target && el.isConnected) {
       // site-ul isi redeseneaza playerul si poate sterge marcajele sau muta video-ul: le refacem
       var chain = chainOf(el);
@@ -157,10 +176,31 @@
     marked.forEach(function (p) { p.setAttribute('data-rf-anc', ''); });
   }
 
+  function decideMode() {
+    var v = bestVideo();
+    if (!v) { mode = isTop ? 'full' : null; return; }
+    var big = visibleArea(v) >= 0.6 * innerWidth * innerHeight;
+    mode = big ? 'light' : 'full';
+    send('mode:' + mode);
+    if (mode === 'light') document.addEventListener('click', blockTap, true);
+  }
+
+  // In modul usor, o atingere pe video e pentru controalele aplicatiei: nu o lasam sa ajunga la
+  // playerul site-ului (care ar pune pauza). Swipe-ul (evenimente touch) nu e afectat.
+  function blockTap(e) {
+    if (!cinema || mode !== 'light' || !e.isTrusted) return;
+    var t = e.target;
+    if (t && t.closest && (t.closest('.swiper') || t.tagName === 'VIDEO' || (target && target.parentElement && target.parentElement.contains(t)))) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }
+
   function tick() {
     if (!cinema) return;
     ensureCss();
-    if (!document.documentElement.hasAttribute('data-rf-cinema')) document.documentElement.setAttribute('data-rf-cinema', '');
+    if (mode === null) decideMode();
+    if (mode && document.documentElement.getAttribute('data-rf-cinema') !== mode) document.documentElement.setAttribute('data-rf-cinema', mode);
     var v = bestVideo();
     var t = v || (isTop ? bestIframe() : null);
     setTarget(t);
@@ -204,6 +244,8 @@
     } else {
       if (watcher) watcher.disconnect();
       clearTarget();
+      document.removeEventListener('click', blockTap, true);
+      mode = null;
       document.documentElement.removeAttribute('data-rf-cinema');
     }
   }
@@ -425,7 +467,7 @@
     d.swiperApi = swEl ? (swEl.swiper ? { index: swEl.swiper.activeIndex, slides: (swEl.swiper.slides || []).length,
       isEnd: swEl.swiper.isEnd, allowNext: swEl.swiper.allowSlideNext } : 'fara-api') : 'lipsa';
     d.last = window.__rfLast || null;
-    d.cinema = document.documentElement.hasAttribute('data-rf-cinema');
+    d.cinema = document.documentElement.getAttribute('data-rf-cinema') || false;
     d.frames = !!window.RFBridge;
     var seen = {}, btns = [];
     Array.prototype.slice.call(document.querySelectorAll('a,button,[role=button],[onclick],li')).forEach(function (e) {
