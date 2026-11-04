@@ -25,62 +25,79 @@
     return state.sort !== 'default' || state.min !== '' || state.max !== '' || state.plats.length || state.q.trim();
   }
 
-  // --- detectare carduri ---------------------------------------------------
-  function leafTexts(root) {
-    var out = [], w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  // --- detectare carduri (rapid: fiecare card e citit o singura data) ------
+  var SHORT_RX = /^(\d{1,4}|\d{1,4}\s*(EP|Episodes?|Episoade)|EP|Episodes?|Episoade)$/i;
+
+  function findBadges() {
+    var out = [], seen = new Set(), w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     while (w.nextNode()) {
-      var t = w.currentNode.nodeValue.replace(/\s+/g, ' ').trim();
-      if (!t) continue;
+      var v = w.currentNode.nodeValue;
+      if (v.length > 20) continue;
+      var t = v.trim();
+      if (!t || !SHORT_RX.test(t)) continue;
       var el = w.currentNode.parentElement;
-      // "52 EP" poate fi impartit in mai multe noduri de text: folosim si textul elementului parinte
-      var pt = (el.textContent || '').replace(/\s+/g, ' ').trim();
-      out.push({ t: t, pt: pt.length <= 24 ? pt : t, el: el });
+      if (!el || seen.has(el)) continue;
+      // "52 EP" poate fi impartit in mai multe noduri de text: verificam textul elementului (doar daca e scurt)
+      var pt = el.textContent;
+      if (pt.length > 30) continue;
+      if (EP_RX.test(pt.replace(/\s+/g, ' ')) && !(panel && panel.contains(el))) { seen.add(el); out.push(el); }
     }
     return out;
   }
 
   function scan() {
-    var badges = [];
-    leafTexts(document.body).forEach(function (x) {
-      if (EP_RX.test(x.pt) && badges.indexOf(x.el) < 0 && !(panel && panel.contains(x.el))) badges.push(x.el);
+    var badges = findBadges();
+    // cate badge-uri contine fiecare stramos: O(n * adancime), nu O(n^2)
+    var count = new Map();
+    badges.forEach(function (b) {
+      for (var p = b.parentElement; p && p !== document.body; p = p.parentElement) count.set(p, (count.get(p) || 0) + 1);
     });
-    // urca de la fiecare badge pana la elementul-card: ultimul stramos care contine un singur badge
-    var found = [];
+    var found = [], seen = new Set();
     badges.forEach(function (b) {
       var card = b, p = b.parentElement;
-      while (p && p !== document.body) {
-        var n = 0;
-        for (var i = 0; i < badges.length && n < 2; i++) if (p.contains(badges[i])) n++;
-        if (n > 1) break;
-        card = p; p = p.parentElement;
-      }
-      if (card && found.indexOf(card) < 0) found.push(card);
+      while (p && p !== document.body && count.get(p) === 1) { card = p; p = p.parentElement; }
+      if (!seen.has(card)) { seen.add(card); found.push(card); }
     });
-    cards = found.map(function (el, idx) {
-      if (el.__rfIdx === undefined) el.__rfIdx = idx;
-      var info = { el: el, idx: el.__rfIdx, ep: 0, rating: 0, plat: '', title: '' };
-      var longest = '';
-      leafTexts(el).forEach(function (x) {
-        var m;
-        if ((m = x.pt.match(EP_RX))) { info.ep = parseInt(m[1], 10); return; }
-        if (/^(EP|Episodes?)$/i.test(x.t)) return;
-        if ((m = x.t.match(RATING_RX)) && parseFloat(m[1].replace(',', '.')) <= 10) { info.rating = parseFloat(m[1].replace(',', '.')); return; }
-        if (/watch now|vizioneaz|^play$/i.test(x.t)) return;
-        var upper = /^[A-Z0-9+ ]{3,20}$/.test(x.t);
-        if (!upper && x.t.length >= 3 && x.t.length <= 20 && x.t.split(' ').length <= 3) {
-          try { upper = getComputedStyle(x.el).textTransform === 'uppercase'; } catch (e) {}
-        }
-        if (upper && !info.plat) { info.plat = x.t.trim().toUpperCase(); return; }
-        if (x.t.length > longest.length) longest = x.t;
-      });
-      var img = el.querySelector('img[alt]');
-      info.title = (longest || (img && img.alt) || '').toLowerCase();
-      return info;
+    cards = found.map(function (el) {
+      if (!el.__rfInfo) el.__rfInfo = parseCard(el, nextIdx++);
+      return el.__rfInfo;
     });
     return cards.length;
   }
 
+  var nextIdx = 0;
+  function parseCard(el, idx) {
+    var info = { el: el, idx: idx, ep: 0, rating: 0, plat: '', title: '' };
+    var longest = '', w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) {
+      var t = w.currentNode.nodeValue.replace(/\s+/g, ' ').trim();
+      if (!t) continue;
+      var te = w.currentNode.parentElement, m;
+      var pt = te.textContent.length <= 30 ? te.textContent.replace(/\s+/g, ' ').trim() : t;
+      if ((m = pt.match(EP_RX))) { info.ep = parseInt(m[1], 10); continue; }
+      if (/^(EP|Episodes?)$/i.test(t)) continue;
+      if ((m = t.match(RATING_RX)) && parseFloat(m[1].replace(',', '.')) <= 10) { info.rating = parseFloat(m[1].replace(',', '.')); continue; }
+      if (/watch now|vizioneaz|^play$/i.test(t)) continue;
+      var upper = /^[A-Z0-9+ ]{3,20}$/.test(t);
+      if (!upper && !info.plat && t.length >= 3 && t.length <= 20 && t.split(' ').length <= 3) {
+        try { upper = getComputedStyle(te).textTransform === 'uppercase'; } catch (e) {}
+      }
+      if (upper && !info.plat) { info.plat = t.toUpperCase(); continue; }
+      if (t.length > longest.length) longest = t;
+    }
+    var img = el.querySelector('img[alt]');
+    info.title = (longest || (img && img.alt) || '').toLowerCase();
+    return info;
+  }
+
   // --- aplicare ------------------------------------------------------------
+  var gridCache = new WeakMap();
+  function isGrid(parent) {
+    if (!parent) return false;
+    if (!gridCache.has(parent)) gridCache.set(parent, /grid|flex/.test(getComputedStyle(parent).display));
+    return gridCache.get(parent);
+  }
+
   function apply() {
     scan();
     if (cards.length < 3) { if (btn) btn.style.display = 'none'; return; }
@@ -96,7 +113,8 @@
       var ok = c.ep >= min && c.ep <= max;
       if (ok && state.plats.length) ok = state.plats.indexOf(c.plat) >= 0;
       if (ok && words.length) ok = words.some(function (w) { return c.title.indexOf(w) >= 0; });
-      c.el.style.display = ok ? '' : 'none';
+      var d = ok ? '' : 'none';
+      if (c.el.style.display !== d) c.el.style.display = d;
       if (ok) shown++;
     });
 
@@ -110,18 +128,58 @@
     });
     // CSS order: nu mutam elementele in DOM (site-ul e o aplicatie React si s-ar strica)
     sorted.forEach(function (c, i) {
-      var parent = c.el.parentElement;
-      var disp = parent ? getComputedStyle(parent).display : '';
-      if (/grid|flex/.test(disp)) c.el.style.order = state.sort === 'default' ? '' : String(i);
+      var o = state.sort === 'default' ? '' : String(i);
+      if (c.el.style.order !== o && isGrid(c.el.parentElement)) c.el.style.order = o;
     });
 
     btn.classList.toggle('on', !!isActive());
-    countEl.textContent = shown + ' din ' + cards.length + ' seriale pe pagina';
+    countEl.textContent = shown + ' din ' + cards.length + ' seriale incarcate';
     renderPlatforms();
   }
 
-  var timer = null;
-  function schedule() { clearTimeout(timer); timer = setTimeout(apply, 400); }
+  var timer = null, lastRun = 0;
+  function schedule() {
+    clearTimeout(timer);
+    // cand site-ul adauga mult continut, nu reprocesam mai des de o data la ~1s
+    var wait = Math.max(500, 1000 - (Date.now() - lastRun));
+    timer = setTimeout(function () { lastRun = Date.now(); apply(); }, wait);
+  }
+
+  // --- "Incarca tot": deruleaza si apasa "Load more" pana nu mai apar seriale ---
+  var loading = false;
+  var MORE_RX = /^(load more|show more|see more|view more|more|incarca mai mult|încarcă mai mult|mai mult|mai multe)$/i;
+  function clickMore() {
+    var els = document.querySelectorAll('button, a, [role=button]');
+    for (var i = 0; i < els.length; i++) {
+      var e = els[i];
+      if (panel.contains(e) || e === btn) continue;
+      var txt = (e.innerText || '').trim();
+      if (!MORE_RX.test(txt)) continue;
+      if (e.tagName === 'A') { var h = e.getAttribute('href'); if (h && h !== '#' && h.indexOf('javascript') !== 0) continue; }
+      var r = e.getBoundingClientRect();
+      if (r.width && r.height) { e.click(); return true; }
+    }
+    return false;
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  async function loadAll() {
+    if (loading) { loading = false; return; }
+    loading = true;
+    var lb = panel.querySelector('#rf-load');
+    var last = -1, same = 0;
+    while (loading && same < 4 && cards.length < 3000) {
+      clickMore();
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await sleep(1300);
+      scan();
+      if (cards.length === last) same++; else { same = 0; last = cards.length; }
+      lb.textContent = '⏹ Opreste (' + cards.length + ' incarcate)';
+    }
+    loading = false;
+    lb.textContent = '⬇️ Incarca tot';
+    apply();
+    window.scrollTo(0, 0);
+  }
 
   // --- interfata -----------------------------------------------------------
   function ensureUi() {
@@ -157,6 +215,7 @@
     panel.id = 'rf-panel';
     panel.innerHTML =
       '<h3>Filtru</h3><div id="rf-count"></div>' +
+      '<button class="rf-chip" id="rf-load" style="margin-top:10px;width:100%">\u2B07\uFE0F Incarca tot</button>' +
       '<div class="rf-l">Sortare</div><div class="rf-row" id="rf-sort">' +
       chip('default', 'Implicit') + chip('ep-asc', 'Episoade ↑') + chip('ep-desc', 'Episoade ↓') + chip('rating', 'Nota ↓') +
       '</div>' +
@@ -200,6 +259,7 @@
       }
       else if (t.id === 'rf-reset') state = { sort: 'default', min: '', max: '', plats: [], q: '' };
       else if (t.id === 'rf-close') { panel.style.display = 'none'; return; }
+      else if (t.id === 'rf-load') { loadAll(); return; }
       save(); syncInputs(); apply();
     });
     ['rf-min', 'rf-max', 'rf-q'].forEach(function (id) {
