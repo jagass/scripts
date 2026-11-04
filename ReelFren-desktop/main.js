@@ -60,6 +60,13 @@ function saveBounds(win) {
 
 let win = null;
 
+// Identificare exact ca un Chrome obisnuit pe Windows (fara "Electron" / numele aplicatiei,
+// cu versiunea scurtata cum o trimite Chrome). Se aplica peste tot, inclusiv verificarii Cloudflare.
+const CHROME_MAJOR = String(process.versions.chrome || '130').split('.')[0];
+const CLEAN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' +
+  CHROME_MAJOR + '.0.0.0 Safari/537.36';
+app.userAgentFallback = CLEAN_UA;
+
 function createWindow() {
   const b = loadBounds();
   win = new BrowserWindow({
@@ -117,9 +124,7 @@ if (!gotLock) {
     Menu.setApplicationMenu(null);
     const ses = session.defaultSession;
     // Ne prezentam ca un Chrome obisnuit (unele site-uri refuza aplicatiile).
-    ses.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' +
-      process.versions.chrome + ' Safari/537.36');
+    ses.setUserAgent(CLEAN_UA);
     // Cererile spre retele de reclame cunoscute sunt anulate.
     ses.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, cb) => {
       let host = '';
