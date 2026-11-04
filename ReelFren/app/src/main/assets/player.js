@@ -73,7 +73,50 @@
     return a > 20000 ? best : null;
   }
 
+  // In modul cinema ascundem direct (stil inline cu !important) tot ce sta langa video, pe tot lantul
+  // de parinti. Asta bate si reclamele care isi pun singure stiluri "forțate" ca sa nu poata fi ascunse.
+  var hiddenByUs = [];
+  function enforce(el) {
+    var st = el.style;
+    if (st.getPropertyValue('display') !== 'none' || st.getPropertyPriority('display') !== 'important') {
+      st.setProperty('display', 'none', 'important');
+    }
+  }
+  // reactioneaza imediat daca cineva incearca sa reafiseze un element ascuns de noi
+  var guard = window.MutationObserver ? new MutationObserver(function (muts) {
+    for (var i = 0; i < muts.length; i++) if (muts[i].target.__rfHid) enforce(muts[i].target);
+  }) : null;
+  var SKIP_TAGS = { HEAD: 1, SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, TITLE: 1, NOSCRIPT: 1 };
+  function hideOthers() {
+    if (!target) return;
+    var parents = marked.concat([document.documentElement]);
+    for (var i = 0; i < parents.length; i++) {
+      var kids = parents[i].children;
+      for (var j = 0; j < kids.length; j++) {
+        var k = kids[j];
+        if (k === target || k.__rfHid || SKIP_TAGS[k.tagName] || k.classList.contains('rf-cinema-anc')) continue;
+        k.__rfHid = true;
+        hiddenByUs.push([k, k.style.getPropertyValue('display'), k.style.getPropertyPriority('display')]);
+        k.style.setProperty('display', 'none', 'important');
+        if (guard) guard.observe(k, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] });
+      }
+    }
+    // daca o reclama si-a rescris stilul, il punem la loc
+    for (var h = 0; h < hiddenByUs.length; h++) enforce(hiddenByUs[h][0]);
+  }
+  function restoreOthers() {
+    hiddenByUs.forEach(function (h) { h[0].__rfHid = false; });
+    if (guard) guard.disconnect();
+    hiddenByUs.forEach(function (h) {
+      var el = h[0];
+      el.__rfHid = false;
+      if (h[1]) el.style.setProperty('display', h[1], h[2]); else el.style.removeProperty('display');
+    });
+    hiddenByUs = [];
+  }
+
   function clearTarget() {
+    restoreOthers();
     if (target) target.classList.remove('rf-cinema-target');
     marked.forEach(function (el) { el.classList.remove('rf-cinema-anc'); });
     marked = [];
@@ -99,6 +142,7 @@
     var v = bestVideo();
     var t = v || (isTop ? bestIframe() : null);
     setTarget(t);
+    hideOthers();
     if (v) {
       // episod nou (video inlocuit de site): il pornim automat
       if (v !== lastVideo) {

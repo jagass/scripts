@@ -52,17 +52,47 @@
     for (var k = 0; k < top.length; k++) if (top[k] !== b && top[k].tagName !== 'HEAD') check(top[k]);
   }
 
+  // Cautare in toata pagina dupa textele tipice reclamelor-capcana; ascunde fereastra care le contine
+  // (oricat de adanc ar fi pusa), chiar daca isi forteaza singura stilurile.
+  var STRONG = /(vpn\s*toggle|vpn\s*recommended|install\s*vpn|use\s*(a\s*)?vpn|click to download|allow notifications|press allow|tap allow|click allow|virus (detected|found)|your (phone|device|android) (is|has|may)|security (alert|warning))/i;
+  var hiddenAds = [];
+  function deepSweep() {
+    if (!document.body) return;
+    var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), seen = new Set();
+    while (w.nextNode()) {
+      var v = w.currentNode.nodeValue;
+      if (v.length > 200 || !STRONG.test(v)) continue;
+      var el = w.currentNode.parentElement, box = null;
+      for (var p = el; p && p !== document.body; p = p.parentElement) {
+        if (isOurs(p)) { box = null; break; }
+        if ((p.innerText || '').length > 700) break;
+        var cs = getComputedStyle(p);
+        var z = parseInt(cs.zIndex, 10) || 0;
+        if (p.tagName === 'DIALOG' || cs.position === 'fixed' || z >= 1000) box = p;
+      }
+      if (box && !seen.has(box)) {
+        seen.add(box);
+        if (box.tagName === 'DIALOG' && box.open) try { box.close(); } catch (e) {}
+        if (hiddenAds.indexOf(box) < 0) hiddenAds.push(box);
+      }
+    }
+    // fereastra de reclama e scoasa cu totul din pagina (nu doar ascunsa)
+    hiddenAds.forEach(function (b) { try { b.remove(); } catch (e) {} });
+    hiddenAds = [];
+  }
+
   var pending = false;
   function schedule() {
     if (pending) return;
     pending = true;
-    setTimeout(function () { pending = false; sweep(); }, 250);
+    setTimeout(function () { pending = false; sweep(); deepSweep(); }, 250);
   }
 
   function start() {
     sweep();
+    deepSweep();
     new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(sweep, 2000);
+    setInterval(function () { sweep(); deepSweep(); }, 1500);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
   else start();
