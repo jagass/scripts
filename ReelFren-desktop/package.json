@@ -1,0 +1,25 @@
+{
+  "name": "reelfren-desktop",
+  "productName": "ReelFren",
+  "version": "1.0.0",
+  "description": "Aplicatie desktop personala pentru reelfren.net",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "copy-shared": "node copy-shared.js",
+    "start": "npm run copy-shared && electron .",
+    "dist": "npm run copy-shared && electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "net.reelfren.desktop",
+    "productName": "ReelFren",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "desktop.js", "shared/**", "build/icon.png"],
+    "win": { "target": "portable", "icon": "build/icon.png" },
+    "portable": { "artifactName": "ReelFren.exe" }
+  }
+}
