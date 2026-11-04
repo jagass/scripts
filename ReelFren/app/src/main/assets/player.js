@@ -312,14 +312,24 @@
 
   // Componenta "Swiper" (folosita des pentru episoade cu swipe) are o metoda directa slideNext/slidePrev.
   function bySwiper(step) {
-    var els = document.querySelectorAll('.swiper, .swiper-container, [class*=swiper]');
+    var els = Array.prototype.slice.call(document.querySelectorAll('.swiper-vertical, .swiper, .swiper-container, [class*=swiper]'));
+    // swiper-ul care contine video-ul are prioritate (nu un carusel oarecare din pagina)
+    els.sort(function (a, b) { return (b.querySelector('video') ? 1 : 0) - (a.querySelector('video') ? 1 : 0); });
     for (var i = 0; i < els.length; i++) {
       var sw = els[i].swiper;
-      if (sw && typeof sw.slideNext === 'function') {
-        if (step > 0) sw.slideNext(); else sw.slidePrev();
-        lastVideo = null;
-        return true;
+      if (!sw || typeof sw.slideNext !== 'function') continue;
+      if (!els[i].querySelector('video') && !/vertical/.test(els[i].className)) continue;
+      var before = sw.activeIndex;
+      if (step > 0) {
+        if (sw.isEnd) return false;
+        sw.slideNext();
+      } else {
+        if (sw.isBeginning) return false;
+        sw.slidePrev();
       }
+      if (sw.activeIndex === before) return false; // nu s-a miscat: incercam alta metoda
+      lastVideo = null;
+      return true;
     }
     return false;
   }
@@ -348,12 +358,14 @@
     return false;
   }
 
-  window.__rfPrev = function () { return byNumber(-1) || byUrl(-1) || bySwiper(-1) || byScroll(-1); };
+  // Pe reelfren.net pagina de episod e un Swiper vertical (un episod pe slide) + lista "EP 1, EP 2..."
+  // + adresa cu ?ep=N. Ordinea: swiper (ca un swipe), lista de episoade, adresa, derulare.
+  window.__rfPrev = function () { return bySwiper(-1) || byNumber(-1) || byUrl(-1) || byScroll(-1); };
 
   window.__rfNext = function () {
+    if (bySwiper(1)) return true;
     if (byNumber(1)) return true;
     if (byUrl(1)) return true;
-    if (bySwiper(1)) return true;
     if (byScroll(1)) return true;
     var el = findNext();
     if (!el) return false;
