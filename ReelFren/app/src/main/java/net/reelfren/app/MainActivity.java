@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
     private final Runnable hideControls = () -> { if (controls != null) controls.setVisibility(View.GONE); };
 
     private String playerJs = "";
+    private String filterJs = "";
     private boolean startScriptInjected = false;
     /** Canale catre fiecare frame (pagina + iframe-ul playerului), ca sa putem derula video-ul. */
     private final List<JavaScriptReplyProxy> frames = new ArrayList<>();
@@ -111,6 +112,7 @@ public class MainActivity extends Activity {
         cookies.setAcceptThirdPartyCookies(webView, true);
 
         playerJs = readAsset("player.js");
+        filterJs = readAsset("filter.js");
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
                     (view, message, sourceOrigin, isMainFrame, replyProxy) -> {
@@ -121,6 +123,11 @@ public class MainActivity extends Activity {
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(webView, playerJs, Collections.singleton("*"));
+            // Butonul "Filtru" doar pe paginile site-ului (nu si in iframe-uri straine)
+            java.util.Set<String> site = new java.util.HashSet<>();
+            site.add("https://reelfren.net");
+            site.add("https://*.reelfren.net");
+            WebViewCompat.addDocumentStartJavaScript(webView, filterJs, site);
             startScriptInjected = true;
         }
 
@@ -167,6 +174,8 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             if (!startScriptInjected) view.evaluateJavascript(playerJs, null);
+            // scriptul se protejeaza singur de dubla rulare, deci e sigur sa-l rulam si aici
+            view.evaluateJavascript(filterJs, null);
             CookieManager.getInstance().flush();
         }
 
