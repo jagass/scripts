@@ -8,6 +8,9 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.view.GestureDetector;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.Gravity;
 import android.view.View;
@@ -130,7 +133,19 @@ public class MainActivity extends Activity {
         // Strat transparent peste pagina in modul cinema: o atingere arata/ascunde controalele.
         tapCatcher = new View(this);
         tapCatcher.setVisibility(View.GONE);
-        tapCatcher.setOnClickListener(v -> toggleCinemaControls());
+        // atingere = arata/ascunde controalele; swipe sus/jos = episodul urmator/anterior
+        GestureDetector gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(MotionEvent e) { return true; }
+            @Override public boolean onSingleTapUp(MotionEvent e) { toggleCinemaControls(); return true; }
+            @Override public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null) return false;
+                float dy = e2.getY() - e1.getY(), dx = e2.getX() - e1.getX();
+                if (Math.abs(dy) < dp(80) || Math.abs(dy) < Math.abs(dx)) return false;
+                changeEpisode(dy < 0);
+                return true;
+            }
+        });
+        tapCatcher.setOnTouchListener((v, ev) -> gestures.onTouchEvent(ev));
         root.addView(tapCatcher, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -533,20 +548,55 @@ public class MainActivity extends Activity {
         Toast.makeText(this, (seconds > 0 ? "+" : "") + seconds + "s", Toast.LENGTH_SHORT).show();
     }
 
-    private void nextEpisode() {
-        webView.evaluateJavascript("window.__rfNext ? window.__rfNext() : false", result -> {
+    private void nextEpisode() { changeEpisode(true); }
+
+    private boolean changing = false;
+
+    /** Episodul urmator/anterior: intai lista de episoade a site-ului, apoi un swipe real in pagina. */
+    private void changeEpisode(boolean next) {
+        if (changing) return;
+        changing = true;
+        handler.postDelayed(() -> changing = false, 2500);
+        String js = next ? "window.__rfNext ? window.__rfNext() : false" : "window.__rfPrev ? window.__rfPrev() : false";
+        webView.evaluateJavascript(js, result -> {
+            Toast.makeText(this, next ? "Episodul urm\u0103tor\u2026" : "Episodul anterior\u2026", Toast.LENGTH_SHORT).show();
             if ("true".equals(result)) {
-                // in modul cinema ramanem pe ecran mare: noul video e preluat automat
                 if (fullscreenView != null) chromeClient.onHideCustomView();
-                Toast.makeText(this, "Episodul urm\u0103tor\u2026", Toast.LENGTH_SHORT).show();
-            } else {
-                // poate butonul e in interiorul playerului (iframe)
-                for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
-                    try { p.postMessage("next"); } catch (Exception ignored) { }
-                }
-                Toast.makeText(this, "Caut episodul urm\u0103tor in player\u2026", Toast.LENGTH_SHORT).show();
+                return;
             }
+            swipePage(next);
         });
+    }
+
+    /**
+     * Site-ul schimba episoadele prin swipe. In modul cinema ridicam pentru o clipa "ecranul mare",
+     * facem swipe-ul in pagina (ca un deget real), apoi punem pe tot ecranul noul video.
+     */
+    private void swipePage(boolean next) {
+        final boolean wasCinema = cinema;
+        if (wasCinema) broadcast("cinema:0");
+        handler.postDelayed(() -> {
+            int w = webView.getWidth(), h = webView.getHeight();
+            final float x = w / 2f;
+            final float y0 = next ? h * 0.75f : h * 0.30f;
+            final float y1 = next ? h * 0.30f : h * 0.75f;
+            final long down = SystemClock.uptimeMillis();
+            touch(MotionEvent.ACTION_DOWN, down, x, y0);
+            final int steps = 10;
+            for (int i = 1; i <= steps; i++) {
+                final float y = y0 + (y1 - y0) * i / steps;
+                handler.postDelayed(() -> touch(MotionEvent.ACTION_MOVE, down, x, y), i * 16L);
+            }
+            handler.postDelayed(() -> touch(MotionEvent.ACTION_UP, down, x, y1), (steps + 1) * 16L);
+            if (wasCinema) handler.postDelayed(() -> { if (cinema) broadcast("cinema:1"); }, 1600);
+        }, wasCinema ? 350 : 0);
+    }
+
+    private void touch(int action, long downTime, float x, float y) {
+        MotionEvent e = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);
+        e.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+        webView.dispatchTouchEvent(e);
+        e.recycle();
     }
 
     private String readAsset(String name) {

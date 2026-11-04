@@ -179,7 +179,40 @@
     return document.querySelector('a[rel=next], link[rel=next]');
   }
 
+  // Lista de episoade (1, 2, 3... sau "EP 2"): gaseste episodul activ si apasa pe urmatorul/anteriorul.
+  var NUM_RX = /^(ep\.?\s*|episode\s*|episodul\s*)?(\d{1,4})$/i;
+  var ACTIVE_RX = /(^|[\s_-])(active|current|selected|playing|is-active|on)([\s_-]|$)/i;
+  function byNumber(step) {
+    var els = document.querySelectorAll('a, button, li, [role=button], [role=tab], div, span');
+    var map = {}, active = null;
+    for (var i = 0; i < els.length; i++) {
+      var e = els[i];
+      if (e.children.length > 3) continue;
+      var t = (e.textContent || '').replace(/\s+/g, ' ').trim();
+      var m = t.match(NUM_RX);
+      if (!m) continue;
+      var n = parseInt(m[2], 10);
+      // preferam elementul cel mai din interior (butonul, nu <li>-ul din jurul lui)
+      if (!(n in map) || map[n].contains(e)) map[n] = e;
+      var cls = (typeof e.className === 'string' ? e.className : '');
+      var isAct = ACTIVE_RX.test(cls) || e.getAttribute('aria-current') || e.getAttribute('aria-selected') === 'true';
+      if (!isAct && e.parentElement) {
+        var pc = typeof e.parentElement.className === 'string' ? e.parentElement.className : '';
+        isAct = ACTIVE_RX.test(pc) && e.parentElement.children.length === 1;
+      }
+      if (isAct && active === null) active = n;
+    }
+    if (active === null) return false;
+    var target = map[active + step];
+    if (!target) return false;
+    lastVideo = null;
+    target.click();
+    return true;
+  }
+  window.__rfPrev = function () { return byNumber(-1); };
+
   window.__rfNext = function () {
+    if (byNumber(1)) return true;
     var el = findNext();
     if (!el) return false;
     if (el.tagName === 'LINK') { location.href = el.href; return true; }
