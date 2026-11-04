@@ -591,40 +591,38 @@ public class MainActivity extends Activity {
     private void changeEpisode(boolean next) {
         if (changing) return;
         changing = true;
-        handler.postDelayed(() -> changing = false, 2500);
-        String js = next ? "window.__rfNext ? window.__rfNext() : false" : "window.__rfPrev ? window.__rfPrev() : false";
-        webView.evaluateJavascript(js, result -> {
-            Toast.makeText(this, next ? "Episodul urm\u0103tor\u2026" : "Episodul anterior\u2026", Toast.LENGTH_SHORT).show();
-            if ("true".equals(result)) {
-                if (fullscreenView != null) chromeClient.onHideCustomView();
-                return;
-            }
-            swipePage(next);
-        });
-    }
+        handler.postDelayed(() -> changing = false, 3000);
+        Toast.makeText(this, next ? "Episodul urm\u0103tor\u2026" : "Episodul anterior\u2026", Toast.LENGTH_SHORT).show();
+        if (fullscreenView != null) chromeClient.onHideCustomView();
 
-    /**
-     * Site-ul schimba episoadele prin swipe. In modul cinema ridicam pentru o clipa "ecranul mare",
-     * facem swipe-ul in pagina (ca un deget real), apoi punem pe tot ecranul noul video.
-     */
-    private void swipePage(boolean next) {
+        // 1) ridicam pentru o clipa "ecranul mare", ca pagina sa aiba din nou aranjarea ei normala
         final boolean wasCinema = cinema;
         if (wasCinema) broadcast("cinema:0");
         handler.postDelayed(() -> {
-            int w = webView.getWidth(), h = webView.getHeight();
-            final float x = w / 2f;
-            final float y0 = next ? h * 0.75f : h * 0.30f;
-            final float y1 = next ? h * 0.30f : h * 0.75f;
-            final long down = SystemClock.uptimeMillis();
-            touch(MotionEvent.ACTION_DOWN, down, x, y0);
-            final int steps = 10;
-            for (int i = 1; i <= steps; i++) {
-                final float y = y0 + (y1 - y0) * i / steps;
-                handler.postDelayed(() -> touch(MotionEvent.ACTION_MOVE, down, x, y), i * 16L);
-            }
-            handler.postDelayed(() -> touch(MotionEvent.ACTION_UP, down, x, y1), (steps + 1) * 16L);
-            if (wasCinema) handler.postDelayed(() -> { if (cinema) broadcast("cinema:1"); }, 1600);
+            // 2) metodele directe: lista de episoade, adresa, Swiper, derulare cu un ecran
+            String js = next ? "window.__rfNext ? window.__rfNext() : false" : "window.__rfPrev ? window.__rfPrev() : false";
+            webView.evaluateJavascript(js, result -> {
+                // 3) altfel: un swipe real in pagina, ca un deget
+                if (!"true".equals(result)) swipePage(next);
+                // 4) dupa ce s-a schimbat episodul, punem pe tot ecranul video-ul care se vede acum
+                if (wasCinema) handler.postDelayed(() -> { if (cinema) broadcast("cinema:1"); }, 1700);
+            });
         }, wasCinema ? 350 : 0);
+    }
+
+    private void swipePage(boolean next) {
+        int w = webView.getWidth(), h = webView.getHeight();
+        final float x = w / 2f;
+        final float y0 = next ? h * 0.75f : h * 0.30f;
+        final float y1 = next ? h * 0.30f : h * 0.75f;
+        final long down = SystemClock.uptimeMillis();
+        touch(MotionEvent.ACTION_DOWN, down, x, y0);
+        final int steps = 10;
+        for (int i = 1; i <= steps; i++) {
+            final float y = y0 + (y1 - y0) * i / steps;
+            handler.postDelayed(() -> touch(MotionEvent.ACTION_MOVE, down, x, y), i * 16L);
+        }
+        handler.postDelayed(() -> touch(MotionEvent.ACTION_UP, down, x, y1), (steps + 1) * 16L);
     }
 
     private void touch(int action, long downTime, float x, float y) {

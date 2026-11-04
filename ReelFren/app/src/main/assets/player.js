@@ -55,12 +55,21 @@
     return Math.max(0, r.width) * Math.max(0, r.height);
   }
 
+  function visibleArea(el) {
+    var r = el.getBoundingClientRect();
+    var w = Math.min(r.right, innerWidth) - Math.max(r.left, 0);
+    var h = Math.min(r.bottom, innerHeight) - Math.max(r.top, 0);
+    return w > 0 && h > 0 ? w * h : 0;
+  }
+
   function bestVideo() {
     var vs = Array.prototype.slice.call(document.querySelectorAll('video'));
     var best = null, bestScore = -1;
     vs.forEach(function (v) {
       if (!v.isConnected) return;
-      var sc = (v.paused ? 0 : 1e9) + (v.readyState > 0 ? 1e8 : 0) + area(v) + (v === target ? 1 : 0);
+      // conteaza in primul rand cat din video se vede pe ecran (dupa swipe, episodul nou e cel vizibil),
+      // apoi daca ruleaza; asa nu revenim din greseala la episodul vechi
+      var sc = visibleArea(v) * 10 + (v.paused ? 0 : 5000) + (v.readyState > 0 ? 1000 : 0) + (v === target ? 1 : 0);
       if (sc > bestScore) { bestScore = sc; best = v; }
     });
     return best;
@@ -301,11 +310,51 @@
     return false;
   }
 
-  window.__rfPrev = function () { return byNumber(-1) || byUrl(-1); };
+  // Componenta "Swiper" (folosita des pentru episoade cu swipe) are o metoda directa slideNext/slidePrev.
+  function bySwiper(step) {
+    var els = document.querySelectorAll('.swiper, .swiper-container, [class*=swiper]');
+    for (var i = 0; i < els.length; i++) {
+      var sw = els[i].swiper;
+      if (sw && typeof sw.slideNext === 'function') {
+        if (step > 0) sw.slideNext(); else sw.slidePrev();
+        lastVideo = null;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Lista de episoade derulabila (TikTok-style): derulam containerul cu exact un ecran.
+  function byScroll(step) {
+    var vs = Array.prototype.slice.call(document.querySelectorAll('video'));
+    var v = null, best = 0;
+    vs.forEach(function (x) { var a = visibleArea(x); if (a > best) { best = a; v = x; } });
+    var start = v || document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    for (var p = start; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+      var cs = getComputedStyle(p);
+      if (/(auto|scroll)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight + 20) {
+        p.scrollBy({ top: step * p.clientHeight, behavior: 'smooth' });
+        lastVideo = null;
+        return true;
+      }
+    }
+    // pagina intreaga cu "scroll snap" (cate un episod pe ecran)
+    var snap = getComputedStyle(document.documentElement).scrollSnapType + ' ' + getComputedStyle(document.body).scrollSnapType;
+    if (/(y|both|block|mandatory)/.test(snap) && document.scrollingElement.scrollHeight > innerHeight + 20) {
+      window.scrollBy({ top: step * innerHeight, behavior: 'smooth' });
+      lastVideo = null;
+      return true;
+    }
+    return false;
+  }
+
+  window.__rfPrev = function () { return byNumber(-1) || byUrl(-1) || bySwiper(-1) || byScroll(-1); };
 
   window.__rfNext = function () {
     if (byNumber(1)) return true;
     if (byUrl(1)) return true;
+    if (bySwiper(1)) return true;
+    if (byScroll(1)) return true;
     var el = findNext();
     if (!el) return false;
     if (el.tagName === 'LINK') { location.href = el.href; return true; }
