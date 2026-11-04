@@ -478,7 +478,7 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 text = String.valueOf(result);
             }
-            final String diag = text;
+            final String diag = appVersion() + " " + text;
             TextView tv = new TextView(this);
             tv.setText(diag);
             tv.setTextIsSelectable(true);
@@ -487,7 +487,7 @@ public class MainActivity extends Activity {
             android.widget.ScrollView sv = new android.widget.ScrollView(this);
             sv.addView(tv);
             new android.app.AlertDialog.Builder(this)
-                    .setTitle("Diagnostic")
+                    .setTitle("Diagnostic " + appVersion())
                     .setView(sv)
                     .setPositiveButton("Copiaz\u0103", (d, w) -> {
                         android.content.ClipboardManager cm =
@@ -498,6 +498,14 @@ public class MainActivity extends Activity {
                     .setNegativeButton("\u00CEnchide", null)
                     .show();
         });
+    }
+
+    private String appVersion() {
+        try {
+            return "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private LinearLayout.LayoutParams weight() {
@@ -595,19 +603,33 @@ public class MainActivity extends Activity {
         Toast.makeText(this, next ? "Episodul urm\u0103tor\u2026" : "Episodul anterior\u2026", Toast.LENGTH_SHORT).show();
         if (fullscreenView != null) chromeClient.onHideCustomView();
 
-        // 1) ridicam pentru o clipa "ecranul mare", ca pagina sa aiba din nou aranjarea ei normala
         final boolean wasCinema = cinema;
-        if (wasCinema) broadcast("cinema:0");
-        handler.postDelayed(() -> {
-            // 2) metodele directe: lista de episoade, adresa, Swiper, derulare cu un ecran
-            String js = next ? "window.__rfNext ? window.__rfNext() : false" : "window.__rfPrev ? window.__rfPrev() : false";
-            webView.evaluateJavascript(js, result -> {
-                // 3) altfel: un swipe real in pagina, ca un deget
-                if (!"true".equals(result)) swipePage(next);
-                // 4) dupa ce s-a schimbat episodul, punem pe tot ecranul video-ul care se vede acum
-                if (wasCinema) handler.postDelayed(() -> { if (cinema) broadcast("cinema:1"); }, 1700);
-            });
-        }, wasCinema ? 350 : 0);
+        webView.evaluateJavascript("window.__rfState ? window.__rfState() : ''", before -> {
+            // 1) ridicam pentru o clipa "ecranul mare", ca pagina sa aiba din nou aranjarea ei normala
+            if (wasCinema) broadcast("cinema:0");
+            handler.postDelayed(() -> {
+                // 2) metodele directe: Swiper, lista EP, adresa, derulare
+                String js = next ? "window.__rfNext ? window.__rfNext() : false" : "window.__rfPrev ? window.__rfPrev() : false";
+                webView.evaluateJavascript(js, result -> {
+                    final boolean handled = result != null && !"false".equals(result) && !"null".equals(result);
+                    final String method = handled ? result.replace("\"", "") : "swipe simulat";
+                    // 3) altfel: un swipe real in pagina, ca un deget
+                    if (!handled) swipePage(next);
+                    handler.postDelayed(() -> {
+                        // 4) punem pe tot ecranul video-ul care se vede acum
+                        if (wasCinema && cinema) broadcast("cinema:1");
+                        // 5) verificam ca episodul chiar s-a schimbat
+                        handler.postDelayed(() -> webView.evaluateJavascript(
+                                "window.__rfState ? window.__rfState() : ''", after -> {
+                                    if (after != null && after.equals(before)) {
+                                        Toast.makeText(this, "Episodul nu s-a schimbat (metoda: " + method
+                                                + "). Ap\u0103s\u0103 \uD83D\uDEE0 \u0219i trimite diagnosticul.", Toast.LENGTH_LONG).show();
+                                    }
+                                }), 800);
+                    }, 1700);
+                });
+            }, wasCinema ? 350 : 0);
+        });
     }
 
     private void swipePage(boolean next) {

@@ -267,29 +267,37 @@
   var ACTIVE_RX = /(^|[\s_-])(active|current|selected|playing|is-active|on)([\s_-]|$)/i;
   function byNumber(step) {
     var els = document.querySelectorAll('a, button, li, [role=button], [role=tab], div, span');
-    var map = {}, active = null;
+    var cands = [];
     for (var i = 0; i < els.length; i++) {
       var e = els[i];
-      if (e.children.length > 3) continue;
+      if (e.children.length > 3 || e.closest('[id^=rf-]')) continue;
       var t = (e.textContent || '').replace(/\s+/g, ' ').trim();
       var m = t.match(NUM_RX);
       if (!m) continue;
-      var n = parseInt(m[2], 10);
-      // preferam elementul cel mai din interior (butonul, nu <li>-ul din jurul lui)
-      if (!(n in map) || map[n].contains(e)) map[n] = e;
       var cls = (typeof e.className === 'string' ? e.className : '');
-      var isAct = ACTIVE_RX.test(cls) || e.getAttribute('aria-current') || e.getAttribute('aria-selected') === 'true';
+      var isAct = ACTIVE_RX.test(cls) || !!e.getAttribute('aria-current') || e.getAttribute('aria-selected') === 'true';
       if (!isAct && e.parentElement) {
         var pc = typeof e.parentElement.className === 'string' ? e.parentElement.className : '';
         isAct = ACTIVE_RX.test(pc) && e.parentElement.children.length === 1;
       }
-      if (isAct && active === null) active = n;
+      // "sigur episod": textul incepe cu EP/Episode sau clasa contine "episode"
+      var strong = !!m[1] || /episode|(^|[\s_-])ep([\s_-]|$)/i.test(cls);
+      cands.push({ e: e, n: parseInt(m[2], 10), act: isAct, strong: strong });
     }
+    // daca exista butoane clare "EP N", ignoram alte numere din pagina (like-uri, notificari...)
+    if (cands.some(function (c) { return c.strong; })) cands = cands.filter(function (c) { return c.strong; });
+    var map = {}, active = null;
+    cands.forEach(function (c) {
+      // preferam elementul cel mai din interior (butonul, nu <li>-ul din jurul lui)
+      if (!(c.n in map) || map[c.n].contains(c.e)) map[c.n] = c.e;
+      if (c.act && active === null) active = c.n;
+    });
     if (active === null) return false;
     var target = map[active + step];
     if (!target) return false;
     lastVideo = null;
-    target.click();
+    // daca am gasit un <li> cu un buton/link inauntru, apasam butonul
+    (target.querySelector('button, a, [role=button]') || target).click();
     return true;
   }
 
@@ -360,19 +368,35 @@
 
   // Pe reelfren.net pagina de episod e un Swiper vertical (un episod pe slide) + lista "EP 1, EP 2..."
   // + adresa cu ?ep=N. Ordinea: swiper (ca un swipe), lista de episoade, adresa, derulare.
-  window.__rfPrev = function () { return bySwiper(-1) || byNumber(-1) || byUrl(-1) || byScroll(-1); };
+  window.__rfPrev = function () {
+    var r = bySwiper(-1) ? 'swiper' : byNumber(-1) ? 'lista EP' : byUrl(-1) ? 'adresa' : byScroll(-1) ? 'derulare' : false;
+    window.__rfLast = { dir: 'prev', method: r, at: Date.now() };
+    return r;
+  };
 
+  // intoarce numele metodei folosite (pentru verificare), sau false
   window.__rfNext = function () {
-    if (bySwiper(1)) return true;
-    if (byNumber(1)) return true;
-    if (byUrl(1)) return true;
-    if (byScroll(1)) return true;
-    var el = findNext();
-    if (!el) return false;
-    if (el.tagName === 'LINK') { location.href = el.href; return true; }
-    lastVideo = null;
-    el.click();
-    return true;
+    var r = bySwiper(1) ? 'swiper' : byNumber(1) ? 'lista EP' : byUrl(1) ? 'adresa' : byScroll(1) ? 'derulare' : false;
+    if (!r) {
+      var el = findNext();
+      if (el) {
+        lastVideo = null;
+        if (el.tagName === 'LINK') location.href = el.href; else el.click();
+        r = 'buton next';
+      }
+    }
+    window.__rfLast = { dir: 'next', method: r, at: Date.now() };
+    return r;
+  };
+
+  // starea curenta: adresa + video-ul vizibil (ca aplicatia sa verifice daca episodul chiar s-a schimbat)
+  window.__rfState = function () {
+    var v = null, best = 0;
+    Array.prototype.slice.call(document.querySelectorAll('video')).forEach(function (x) {
+      var a = visibleArea(x) + (x.hasAttribute('data-rf-target') ? 1e9 : 0);
+      if (a > best) { best = a; v = x; }
+    });
+    return location.href + ' | ' + (v ? (v.currentSrc || v.src || '') : '');
   };
 
   window.__rfSetCinema = setCinema; // folosit si la teste
@@ -397,6 +421,12 @@
       return (f.src || '').slice(0, 90);
     });
     d.swiper = !!document.querySelector('[class*=swiper],[class*=slick],[class*=carousel],[class*=snap]');
+    var swEl = document.querySelector('.swiper-vertical') || document.querySelector('.swiper');
+    d.swiperApi = swEl ? (swEl.swiper ? { index: swEl.swiper.activeIndex, slides: (swEl.swiper.slides || []).length,
+      isEnd: swEl.swiper.isEnd, allowNext: swEl.swiper.allowSlideNext } : 'fara-api') : 'lipsa';
+    d.last = window.__rfLast || null;
+    d.cinema = document.documentElement.hasAttribute('data-rf-cinema');
+    d.frames = !!window.RFBridge;
     var seen = {}, btns = [];
     Array.prototype.slice.call(document.querySelectorAll('a,button,[role=button],[onclick],li')).forEach(function (e) {
       var t = (e.innerText || e.getAttribute('aria-label') || e.title || '').replace(/\s+/g, ' ').trim().slice(0, 30);
