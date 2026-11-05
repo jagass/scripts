@@ -45,10 +45,11 @@ import java.util.List;
 
 public class MainActivity extends Activity {
 
-    private static final String HOME_URL = "https://reelfren.net/";
+    // Site-ul vine din varianta aplicatiei (reelfren / shortmax), vezi app/build.gradle
+    private static final String HOME_URL = BuildConfig.HOME_URL;
 
     /** Domenii in care aplicatia are voie sa navigheze. Restul (reclame, redirecturi) sunt blocate. */
-    private static final String[] ALLOWED_DOMAINS = { "reelfren.net" };
+    private static final String[] ALLOWED_DOMAINS = BuildConfig.ALLOWED_DOMAINS.split(",");
 
     private FrameLayout root;
     private WebView webView;
@@ -209,8 +210,10 @@ public class MainActivity extends Activity {
             WebViewCompat.addDocumentStartJavaScript(webView, adblockJs, Collections.singleton("*"));
             // Butonul "Filtru" doar pe paginile site-ului (nu si in iframe-uri straine)
             java.util.Set<String> site = new java.util.HashSet<>();
-            site.add("https://reelfren.net");
-            site.add("https://*.reelfren.net");
+            for (String d : ALLOWED_DOMAINS) {
+                site.add("https://" + d);
+                site.add("https://*." + d);
+            }
             WebViewCompat.addDocumentStartJavaScript(webView, filterJs, site);
             startScriptInjected = true;
         }

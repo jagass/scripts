@@ -1,4 +1,4 @@
-name: Build ReelFren APK
+name: Build Android APKs (ReelFren + ShortMax)
 
 on:
   push:
@@ -47,15 +47,19 @@ jobs:
           echo "KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Build APK
-        run: gradle --no-daemon assembleRelease
+        run: gradle --no-daemon assembleReelfrenRelease assembleShortmaxRelease
 
-      - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk ReelFren.apk
+      - name: Rename APKs
+        run: |
+          cp app/build/outputs/apk/reelfren/release/app-reelfren-release.apk ReelFren.apk
+          cp app/build/outputs/apk/shortmax/release/app-shortmax-release.apk ShortMax.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ReelFren-apk
-          path: ReelFren/ReelFren.apk
+          name: apks
+          path: |
+            ReelFren/ReelFren.apk
+            ReelFren/ShortMax.apk
 
       - name: Publish release (download direct de pe telefon)
         uses: softprops/action-gh-release@v2
@@ -64,3 +68,11 @@ jobs:
           name: ReelFren v${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           files: ReelFren/ReelFren.apk
+
+      - name: Publish ShortMax release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: shortmax-v${{ github.run_number }}
+          name: ShortMax Android v${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          files: ReelFren/ShortMax.apk

@@ -1,4 +1,8 @@
-# ReelFren (aplicatie Android personala)
+# ReelFren / ShortMax (aplicatie Android personala)
+
+Aceeasi aplicatie, in doua variante (`productFlavors` in `app/build.gradle`): **ReelFren** (reelfren.net)
+si **ShortMax** (shortmax.shorttw.live). Se instaleaza in paralel; fiecare are login-ul ei.
+APK-urile apar in Releases ca `ReelFren vN` si `ShortMax Android vN`.
 
 WebView pentru https://reelfren.net — pe tot ecranul, video fullscreen, pop-up-uri si linkuri externe blocate.
 

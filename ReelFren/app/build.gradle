@@ -10,8 +10,30 @@ android {
         applicationId 'net.reelfren.app'
         minSdk 26
         targetSdk 34
-        versionCode 16
-        versionName '2.5'
+        versionCode 17
+        versionName '2.6'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // Aceeasi aplicatie pentru mai multe site-uri. Fiecare varianta are id-ul ei
+    // (se instaleaza in paralel), numele, iconita si site-ul ei.
+    flavorDimensions 'site'
+    productFlavors {
+        reelfren {
+            dimension 'site'
+            applicationId 'net.reelfren.app'
+            buildConfigField 'String', 'HOME_URL', '"https://reelfren.net/"'
+            buildConfigField 'String', 'ALLOWED_DOMAINS', '"reelfren.net"'
+        }
+        shortmax {
+            dimension 'site'
+            applicationId 'live.shorttw.shortmax.app'
+            buildConfigField 'String', 'HOME_URL', '"https://shortmax.shorttw.live/index.php"'
+            buildConfigField 'String', 'ALLOWED_DOMAINS', '"shorttw.live"'
+        }
     }
 
     signingConfigs {
