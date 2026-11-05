@@ -259,6 +259,19 @@ public class MainActivity extends Activity {
         return null;
     }
 
+    /** Pentru linkuri intent:// (deschide alta aplicatie): varianta de site, daca exista. */
+    private static String webFallback(Uri uri) {
+        if (!"intent".equals(uri.getScheme())) return null;
+        try {
+            android.content.Intent it = android.content.Intent.parseUri(uri.toString(), android.content.Intent.URI_INTENT_SCHEME);
+            String fb = it.getStringExtra("browser_fallback_url");
+            if (fb != null && isWeb(Uri.parse(fb))) return fb;
+            Uri data = it.getData();
+            if (data != null && isWeb(data)) return data.toString();
+        } catch (Exception ignored) { }
+        return null;
+    }
+
     private void allowByUser(Uri uri) {
         String host = uri.getHost();
         if (host == null) return;
@@ -277,7 +290,15 @@ public class MainActivity extends Activity {
             if (!request.isForMainFrame()) return false;
             Uri uri = request.getUrl();
             if (!isWeb(uri)) {
-                Toast.makeText(MainActivity.this, "Link extern blocat", Toast.LENGTH_SHORT).show();
+                // Link catre o alta aplicatie (intent://...): daca are si o varianta de site,
+                // o deschidem aici, in aplicatie. Nu deschidem niciodata alte aplicatii sau Magazinul Play.
+                String fallback = webFallback(uri);
+                if (fallback != null && request.hasGesture()) {
+                    allowByUser(Uri.parse(fallback));
+                    view.loadUrl(fallback);
+                    return true;
+                }
+                Toast.makeText(MainActivity.this, "Link c\u0103tre alt\u0103 aplica\u021bie blocat", Toast.LENGTH_SHORT).show();
                 return true;
             }
             if (isAllowed(uri)) return false;
