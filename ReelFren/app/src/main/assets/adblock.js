@@ -12,6 +12,14 @@
     'speed up your', 'clean(er)? your', 'security (alert|warning)'
   ].join('|'), 'i');
 
+  // Continutul site-ului (liste de seriale, rezultate de cautare, campul de cautare) nu e niciodata reclama,
+  // chiar daca un titlu contine un cuvant ca "virus" sau "you won".
+  function isSiteContent(el) {
+    try {
+      return !!(el.querySelector && el.querySelector('a[href*="/drama/"], a[href*="/watch/"], input, textarea, video'));
+    } catch (e) { return false; }
+  }
+
   function isOurs(el) {
     return (el.id && el.id.indexOf('rf-') === 0) ||
       (el.hasAttribute && (el.hasAttribute('data-rf-target') || el.hasAttribute('data-rf-anc')));
@@ -25,6 +33,7 @@
 
   function check(el) {
     if (!el || el.nodeType !== 1 || isOurs(el) || el.hasAttribute('data-rf-ad')) return;
+    if (isSiteContent(el)) return;
     if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'LINK') return;
     var cs;
     try { cs = getComputedStyle(el); } catch (e) { return; }
@@ -70,6 +79,7 @@
         var z = parseInt(cs.zIndex, 10) || 0;
         if (p.tagName === 'DIALOG' || cs.position === 'fixed' || z >= 1000) box = p;
       }
+      if (box && isSiteContent(box)) box = null;
       if (box && !seen.has(box)) {
         seen.add(box);
         if (box.tagName === 'DIALOG' && box.open) try { box.close(); } catch (e) {}
