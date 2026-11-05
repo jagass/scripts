@@ -229,14 +229,45 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Site-uri deschise de tine printr-o atingere pe un link (ex. alta platforma din meniul site-ului). */
+    private static final java.util.Set<String> userAllowedHosts = new java.util.HashSet<>();
+    /** Momentul ultimei navigari pornite de tine (redirecturile imediat urmatoare sunt permise). */
+    private long lastUserNav = 0;
+
+    private static boolean hostIn(String host, Iterable<String> domains) {
+        for (String d : domains) {
+            if (host.equals(d) || host.endsWith("." + d)) return true;
+        }
+        return false;
+    }
+
     private static boolean isAllowed(Uri uri) {
         String host = uri.getHost();
         if (host == null) return false;
         host = host.toLowerCase();
-        for (String d : ALLOWED_DOMAINS) {
-            if (host.equals(d) || host.endsWith("." + d)) return true;
+        return hostIn(host, java.util.Arrays.asList(ALLOWED_DOMAINS)) || hostIn(host, userAllowedHosts);
+    }
+
+    private static boolean isWeb(Uri uri) {
+        return "http".equals(uri.getScheme()) || "https".equals(uri.getScheme());
+    }
+
+    /** Linkul (text) pe care tocmai l-ai atins, sau null daca atingerea nu a fost pe un link. */
+    private String tappedLink(WebView view) {
+        WebView.HitTestResult r = view.getHitTestResult();
+        if (r != null && r.getType() == WebView.HitTestResult.SRC_ANCHOR_TYPE) return r.getExtra();
+        return null;
+    }
+
+    private void allowByUser(Uri uri) {
+        String host = uri.getHost();
+        if (host == null) return;
+        host = host.toLowerCase();
+        if (!isAllowed(uri)) {
+            userAllowedHosts.add(host);
+            Toast.makeText(this, "Deschid " + host, Toast.LENGTH_SHORT).show();
         }
-        return false;
+        lastUserNav = SystemClock.uptimeMillis();
     }
 
     private class Client extends WebViewClient {
@@ -245,11 +276,22 @@ public class MainActivity extends Activity {
             // Iframe-urile (de ex. playerul video) pot fi pe alte domenii; blocam doar pagina principala.
             if (!request.isForMainFrame()) return false;
             Uri uri = request.getUrl();
-            String scheme = uri.getScheme();
-            if (("http".equals(scheme) || "https".equals(scheme)) && isAllowed(uri)) {
+            if (!isWeb(uri)) {
+                Toast.makeText(MainActivity.this, "Link extern blocat", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+            if (isAllowed(uri)) return false;
+            // un link pe care l-ai atins tu (ex. alta platforma din meniul site-ului): il deschidem
+            String tapped = request.hasGesture() ? tappedLink(view) : null;
+            boolean userTap = tapped != null && uri.getHost() != null
+                    && uri.getHost().equalsIgnoreCase(Uri.parse(tapped).getHost());
+            // redirecturile imediat dupa un link atins de tine (ex. site -> www.site)
+            boolean redirectAfterTap = request.isRedirect() && SystemClock.uptimeMillis() - lastUserNav < 5000;
+            if (userTap || redirectAfterTap) {
+                allowByUser(uri);
                 return false;
             }
-            Toast.makeText(MainActivity.this, "Link extern blocat", Toast.LENGTH_SHORT).show();
+            Toast.makeText(MainActivity.this, "Link extern blocat: " + uri.getHost(), Toast.LENGTH_SHORT).show();
             return true;
         }
 
@@ -293,7 +335,19 @@ public class MainActivity extends Activity {
 
         @Override
         public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
-            return false; // pop-up blocat
+            // Ferestrele noi sunt blocate (pop-up-uri de reclame). Exceptie: un link de tip "deschide in
+            // fereastra noua" pe care l-ai atins tu - il deschidem aici, in aceeasi fereastra.
+            if (isUserGesture) {
+                String href = tappedLink(view);
+                if (href != null) {
+                    Uri u = Uri.parse(href);
+                    if (isWeb(u)) {
+                        allowByUser(u);
+                        view.loadUrl(href);
+                    }
+                }
+            }
+            return false;
         }
 
         @Override

@@ -45,6 +45,14 @@
     e.stopPropagation();
   }, true);
 
+  // clic real (al tau) pe un link: aplicatia afla unde vrei sa mergi, ca sa permita si alte site-uri
+  // (ex. alta platforma din meniul site-ului). Redirecturile si pop-up-urile fara clic raman blocate.
+  document.addEventListener('click', function (e) {
+    if (!e.isTrusted) return;
+    var a = e.target && e.target.closest && e.target.closest('a[href]');
+    if (a && /^https?:/i.test(a.href) && window.RFBridge) window.RFBridge.postMessage('click:' + a.href);
+  }, true);
+
   // la intrarea in ecran complet, aratam scurtaturile
   window.addEventListener('message', function (e) {
     if (e.source === window && e.data && e.data.__rfOut === 'fs:enter') {

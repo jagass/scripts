@@ -33,13 +33,37 @@ function hostMatches(host, list) {
   host = (host || '').toLowerCase();
   return list.some((d) => host === d || host.endsWith('.' + d));
 }
+// Site-uri deschise de tine printr-un clic pe un link (ex. alta platforma din meniul site-ului).
+const userAllowedHosts = new Set();
+let lastClick = { host: '', at: 0 };   // ultimul link pe care ai dat clic (trimis din pagina)
+let lastUserNav = 0;                   // redirecturile imediat dupa un clic al tau sunt permise
+
 function isAllowed(url) {
   try {
     const u = new URL(url);
-    return (u.protocol === 'https:' || u.protocol === 'http:') && hostMatches(u.hostname, ALLOWED_DOMAINS);
+    return (u.protocol === 'https:' || u.protocol === 'http:') &&
+      (hostMatches(u.hostname, ALLOWED_DOMAINS) || hostMatches(u.hostname, [...userAllowedHosts]));
   } catch (e) {
     return false;
   }
+}
+
+// adresa vine dintr-un clic recent al tau pe un link catre acelasi site?
+function fromUserClick(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const host = u.hostname.toLowerCase();
+    const now = Date.now();
+    if (host === lastClick.host && now - lastClick.at < 4000) return true;
+    return now - lastUserNav < 5000 && lastUserNav > 0 && lastClick.host !== '' && now - lastClick.at < 8000;
+  } catch (e) {
+    return false;
+  }
+}
+function allowByUser(url) {
+  try { userAllowedHosts.add(new URL(url).hostname.toLowerCase()); } catch (e) { /* ignore */ }
+  lastUserNav = Date.now();
 }
 
 function readShared(name) {
@@ -104,11 +128,13 @@ function createWindow() {
   // Pop-up-uri: blocate. Linkurile din site deschise "in fereastra noua" se deschid aici.
   wc.setWindowOpenHandler(({ url }) => {
     if (isAllowed(url)) wc.loadURL(url);
+    else if (fromUserClick(url)) { allowByUser(url); wc.loadURL(url); }
     return { action: 'deny' };
   });
   // Navigare spre alte domenii (reclame, redirecturi): blocata.
   const guard = (e, url) => {
     if (isAllowed(url)) return;
+    if (fromUserClick(url)) { allowByUser(url); return; }
     e.preventDefault();
     let host = url;
     try { host = new URL(url).hostname; } catch (err) { /* ignore */ }
@@ -190,6 +216,9 @@ if (!gotLock) {
       e.returnValue = challengeByWc.get(e.sender.id) ? '' : PAGE_SCRIPT;
     });
     ipcMain.on('rf:fs', (e, on) => { if (win) win.setFullScreen(!!on); });
+    ipcMain.on('rf:click', (e, url) => {
+      try { lastClick = { host: new URL(url).hostname.toLowerCase(), at: Date.now() }; } catch (err) { /* ignore */ }
+    });
 
     createWindow();
   });
