@@ -16,10 +16,13 @@
 
   function load() {
     var d = { sort: 'default', min: '', max: '', plats: [], q: '' };
-    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s) for (var k in d) if (k in s) d[k] = s[k]; } catch (e) {}
+    // setarile tin doar cat e deschisa aplicatia (nu raman "agatate" si nu ascund rezultatele cautarii
+    // la urmatoarea pornire); stergem si filtrul vechi salvat permanent de versiunile anterioare
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    try { var s = JSON.parse(sessionStorage.getItem(KEY)); if (s) for (var k in d) if (k in s) d[k] = s[k]; } catch (e) {}
     return d;
   }
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
   function isActive() {
     return state.sort !== 'default' || state.min !== '' || state.max !== '' || state.plats.length || state.q.trim();
@@ -185,8 +188,37 @@
     });
 
     btn.classList.toggle('on', !!isActive());
+    var hiddenCount = cards.length - shown;
+    var label = isActive() && hiddenCount > 0 ? '\u2699\uFE0F Filtru \u00B7 ' + hiddenCount + ' ascunse' : '\u2699\uFE0F Filtru';
+    if (btn.textContent !== label) btn.textContent = label;
     countEl.textContent = shown + ' din ' + cards.length + ' seriale incarcate';
+    showAllHiddenNotice(isActive() && cards.length > 0 && shown === 0);
     renderPlatforms();
+  }
+
+  // Daca filtrul ascunde TOATE serialele (ex. la o cautare), spunem clar asta, cu buton de resetare,
+  // in loc sa lasam pagina goala (site-ul ar crede ca s-a terminat lista si ar tot incarca).
+  var notice = null;
+  function showAllHiddenNotice(on) {
+    if (!on) { if (notice) notice.style.display = 'none'; return; }
+    if (!notice) {
+      notice = document.createElement('div');
+      notice.id = 'rf-notice';
+      notice.style.cssText = 'position:fixed;left:12px;right:12px;top:72px;z-index:2147483646;background:#0b1220f2;color:#e5e7eb;' +
+        'border:1px solid #f59e0b;border-radius:14px;padding:14px;font:15px system-ui,sans-serif;box-shadow:0 6px 20px #0009;text-align:center';
+      notice.innerHTML = '<div id="rf-notice-text" style="margin-bottom:10px"></div>' +
+        '<button id="rf-notice-reset" style="padding:10px 18px;border-radius:10px;border:0;background:#f59e0b;color:#1f1300;font:600 15px system-ui">Reseteaz\u0103 filtrul</button>';
+      document.body.appendChild(notice);
+      tap(notice, function (e) {
+        if (e.target.closest('#rf-notice-reset')) {
+          state = { sort: 'default', min: '', max: '', plats: [], q: '' };
+          save(); if (panel) syncInputs(); apply();
+        }
+      });
+    }
+    notice.querySelector('#rf-notice-text').textContent =
+      'Filtrul t\u0103u ascunde toate cele ' + cards.length + ' seriale de pe pagin\u0103.';
+    notice.style.display = 'block';
   }
 
   var timer = null, lastRun = 0;

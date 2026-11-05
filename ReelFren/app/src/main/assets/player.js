@@ -46,7 +46,7 @@
       'z-index:2147483600!important;background:#000!important;object-fit:contain!important;visibility:visible!important;opacity:1!important}' +
       '[data-rf-anc]{transform:none!important;filter:none!important;perspective:none!important;contain:none!important;' +
       'will-change:auto!important;z-index:2147483600!important;overflow:visible!important}' +
-      'html[data-rf-cinema] #rf-btn,html[data-rf-cinema] #rf-panel{display:none!important}' +
+      'html[data-rf-cinema] #rf-btn,html[data-rf-cinema] #rf-panel,html[data-rf-cinema] #rf-notice{display:none!important}' +
       'html[data-rf-cinema=full]::after{content:"";position:fixed;inset:0;background:#000;z-index:2147483599}' +
       // in modul cinema nu se vede nimic altceva decat video-ul (nici reclame puse peste el)
       'html[data-rf-cinema=full] body *:not([data-rf-anc]):not([data-rf-target]){visibility:hidden!important;pointer-events:none!important}' +
