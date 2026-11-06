@@ -145,7 +145,7 @@
     if (btn) return;
     var css = document.createElement('style');
     css.textContent =
-      '#rf-epcheck-btn{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:2147483645;padding:7px 14px;' +
+      '#rf-epcheck-btn{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:2147483645;padding:7px 14px;' +
       'border-radius:18px;border:1px solid #2dd4bf;background:#0b1220d9;color:#e6fffb;font:600 13px system-ui,sans-serif;opacity:.85}' +
       '#rf-epcheck{position:fixed;left:0;right:0;bottom:0;max-height:75vh;overflow:auto;z-index:2147483647;background:#0b1220;' +
       'color:#e5e7eb;border-top:1px solid #2dd4bf;border-radius:16px 16px 0 0;padding:16px;font:14px system-ui,sans-serif;display:none}' +
@@ -165,6 +165,12 @@
     btn.textContent = '🔍 Verifică episoadele';
     btn.addEventListener('click', function (e) {
       e.stopPropagation(); e.preventDefault();
+      if (btn.dataset.go) {
+        // pagina de prezentare a serialului: deschidem pagina de vizionare si pornim acolo verificarea
+        try { sessionStorage.setItem(AUTO_KEY, String(Date.now())); } catch (err) {}
+        location.href = btn.dataset.go;
+        return;
+      }
       panel.style.display = 'block';
       if (!running) checkAll();
     }, true);
@@ -209,14 +215,37 @@
   }
 
   // butonul apare doar pe paginile cu video si lista de episoade
+  var AUTO_KEY = 'rfEpCheckAuto';
+
+  // linkul spre pagina de vizionare ("Start Episode 1"), pe pagina de prezentare a serialului
+  function watchLink() {
+    var a = document.querySelector('a[href*="/watch/"]');
+    return a ? a.href : null;
+  }
+
   function refresh() {
-    var has = document.querySelector('video') && episodes().nums.length >= 2;
-    if (has) { ensureUi(); btn.style.display = ''; }
-    else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; }
+    var onWatch = document.querySelector('video') && episodes().nums.length >= 2;
+    var go = onWatch ? null : watchLink();
+    if (onWatch || go) {
+      ensureUi();
+      btn.style.display = '';
+      if (go) btn.dataset.go = go; else delete btn.dataset.go;
+    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; }
+
+    // pornire automata dupa ce am venit de pe pagina de prezentare
+    if (onWatch && !running) {
+      var t = 0;
+      try { t = parseInt(sessionStorage.getItem(AUTO_KEY) || '0', 10); } catch (e) {}
+      if (t && Date.now() - t < 60000) {
+        try { sessionStorage.removeItem(AUTO_KEY); } catch (e) {}
+        panel.style.display = 'block';
+        setTimeout(checkAll, 1500); // lasam primul episod sa porneasca
+      }
+    }
   }
 
   window.__rfCheckEpisodes = checkAll; // pentru teste
 
-  function start() { refresh(); setInterval(refresh, 3000); }
+  function start() { refresh(); setInterval(refresh, 1500); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 })();

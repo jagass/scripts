@@ -154,6 +154,13 @@
   }
 
   function apply() {
+    // pe pagina unui serial (prezentare / vizionare) filtrul n-are rost si ar acoperi butoanele site-ului
+    if (/^\/(drama|watch)\//.test(location.pathname)) {
+      if (btn) btn.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+      cards.forEach(function (c) { c.el.removeAttribute('data-rf-hide'); });
+      return;
+    }
     scan();
     if (cards.length < 3) { if (btn) btn.style.display = 'none'; return; }
     ensureUi();
