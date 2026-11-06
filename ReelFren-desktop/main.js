@@ -80,7 +80,7 @@ const BRIDGE_SHIM =
 const HLS_LIB = '(function(){var module={exports:{}};var exports=module.exports;var define;\n' +
   readShared('hls.min.js') + '\n;window.__RfHls=module.exports;})();';
 const PAGE_SCRIPT = [BRIDGE_SHIM, HLS_LIB, readLocal('hls-shim.js'), readShared('player.js'), readShared('adblock.js'),
-  readShared('filter.js'), readLocal('desktop.js')].join('\n;\n');
+  readShared('filter.js'), readShared('epcheck.js'), readLocal('desktop.js')].join('\n;\n');
 
 // Fereastra isi aminteste marimea si pozitia.
 const stateFile = () => path.join(app.getPath('userData'), 'window.json');

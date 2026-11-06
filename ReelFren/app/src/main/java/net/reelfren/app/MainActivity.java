@@ -84,6 +84,7 @@ public class MainActivity extends Activity {
     private String playerJs = "";
     private String filterJs = "";
     private String adblockJs = "";
+    private String epcheckJs = "";
 
     /** Retele de reclame cunoscute: cererile spre ele primesc un raspuns gol. */
     private static final String[] AD_HOSTS = {
@@ -200,6 +201,7 @@ public class MainActivity extends Activity {
         playerJs = readAsset("player.js");
         filterJs = readAsset("filter.js");
         adblockJs = readAsset("adblock.js");
+        epcheckJs = readAsset("epcheck.js");
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
                     (view, message, sourceOrigin, isMainFrame, replyProxy) -> onBridgeMessage(message.getData(), replyProxy));
@@ -215,6 +217,7 @@ public class MainActivity extends Activity {
                 site.add("https://*." + d);
             }
             WebViewCompat.addDocumentStartJavaScript(webView, filterJs, site);
+            WebViewCompat.addDocumentStartJavaScript(webView, epcheckJs, site);
             startScriptInjected = true;
         }
 
@@ -336,6 +339,7 @@ public class MainActivity extends Activity {
             view.evaluateJavascript(adblockJs, null);
             // scriptul se protejeaza singur de dubla rulare, deci e sigur sa-l rulam si aici
             view.evaluateJavascript(filterJs, null);
+            view.evaluateJavascript(epcheckJs, null);
             CookieManager.getInstance().flush();
         }
 

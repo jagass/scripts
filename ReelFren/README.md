@@ -34,3 +34,8 @@ Mareste `versionCode` in `app/build.gradle` la fiecare update.
 - Domenii permise / URL de start: `ALLOWED_DOMAINS` si `HOME_URL` in `MainActivity.java`
   (daca site-ul se muta pe alt domeniu, adauga-l acolo).
 - Nume: `app/src/main/res/values/strings.xml`.
+
+## Verifica episoadele
+Pe pagina unui serial apare sus butonul **🔍 Verifica episoadele**: aplicatia trece prin toate episoadele
+(fara sunet) si arata care pornesc si care nu (eroare video, mesajul site-ului "Video cannot be loaded",
+sau nu porneste in 15s). Cod: `app/src/main/assets/epcheck.js` (folosit si de aplicatiile desktop).
