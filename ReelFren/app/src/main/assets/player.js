@@ -443,6 +443,36 @@
 
   window.__rfSetCinema = setCinema; // folosit si la teste
 
+  // --- Mod film: la finalul unui episod porneste automat urmatorul ------------------------
+  var AUTO_KEY = 'rfAutoNext';
+  function autoNextOn() {
+    try { return localStorage.getItem(AUTO_KEY) !== '0'; } catch (e) { return true; } // implicit pornit
+  }
+  window.__rfAutoNextOn = autoNextOn;
+  window.__rfToggleAutoNext = function () {
+    var on = !autoNextOn();
+    try { localStorage.setItem(AUTO_KEY, on ? '1' : '0'); } catch (e) {}
+    return on;
+  };
+
+  var autoPending = false;
+  document.addEventListener('ended', function (e) {
+    var v = e.target;
+    if (!(v instanceof HTMLMediaElement) || v.tagName !== 'VIDEO' || !autoNextOn() || autoPending) return;
+    if (visibleArea(v) < 0.2 * innerWidth * innerHeight && !v.hasAttribute('data-rf-target')) return; // nu un video mic/ascuns
+    autoPending = true;
+    var src = v.currentSrc || v.src || '';
+    // lasam site-ul sa treaca singur la urmatorul (daca stie); daca nu, o facem noi
+    setTimeout(function () {
+      autoPending = false;
+      var cur = bestVideo();
+      var advanced = cur && (cur !== v || (cur.currentSrc || cur.src || '') !== src) && !cur.ended;
+      if (advanced) return;
+      if (window.__rfDesktop || !bridge) { if (isTop && window.__rfNext) window.__rfNext(); }
+      else send('auto:next'); // pe telefon: aplicatia schimba episodul (stie si de ecranul mare)
+    }, 1500);
+  }, true);
+
   // Diagnostic: o descriere scurta a paginii de episod, ca sa putem adapta "episodul urmator".
   window.__rfDiag = function () {
     function cls(e) { return (typeof e.className === 'string' ? e.className : '').slice(0, 60); }

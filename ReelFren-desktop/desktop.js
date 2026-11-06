@@ -40,6 +40,10 @@
     } else if (k === 'ArrowRight') { msg('seek:10'); showHint('+10s'); }
     else if (k === 'ArrowLeft') { msg('seek:-10'); showHint('-10s'); }
     else if (k === ' ' || k === 'k' || k === 'K') { msg('toggle'); }
+    else if (k === 'a' || k === 'A') {
+      var on = window.__rfToggleAutoNext && window.__rfToggleAutoNext();
+      showHint('\uD83C\uDFAC Mod film ' + (on ? 'pornit: episoadele merg unul dup\u0103 altul' : 'oprit'), 2000);
+    }
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -56,7 +60,7 @@
   // la intrarea in ecran complet, aratam scurtaturile
   window.addEventListener('message', function (e) {
     if (e.source === window && e.data && e.data.__rfOut === 'fs:enter') {
-      showHint('↑/↓ episod · ←/→ 10s · Space pauză · Esc ieșire', 4000);
+      showHint('↑/↓ episod · ←/→ 10s · Space pauză · A mod film · Esc ieșire', 4000);
     }
   });
 })();

@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
     private boolean cinemaSupported = false;
     /** Mod cinema "usor": playerul site-ului e deja pe tot ecranul; swipe-urile merg direct la site. */
     private boolean cinemaLight = false;
+    private Button filmButton;
     private float tapX, tapY;
     private long tapTime;
     private View tapCatcher;
@@ -454,6 +455,9 @@ public class MainActivity extends Activity {
         } else if (data.startsWith("mode:")) {
             cinemaLight = data.equals("mode:light");
             if (cinema) tapCatcher.setVisibility(cinemaLight ? View.GONE : View.VISIBLE);
+        } else if (data.equals("auto:next")) {
+            // Mod film: episodul s-a terminat si site-ul nu a trecut singur la urmatorul
+            changeEpisode(true);
         } else if (data.equals("fs:enter")) {
             enterCinema();
         } else if (data.equals("fs:exit")) {
@@ -513,7 +517,30 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Mod film: la finalul unui episod porneste automat urmatorul (setarea e tinuta in pagina). */
+    private void toggleFilmMode() {
+        webView.evaluateJavascript("window.__rfToggleAutoNext ? window.__rfToggleAutoNext() : null", r -> {
+            updateFilmButton(r);
+            if ("true".equals(r) || "false".equals(r)) {
+                Toast.makeText(this, "Mod film " + ("true".equals(r) ? "pornit: episoadele merg unul dup\u0103 altul" : "oprit"),
+                        Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void refreshFilmButton() {
+        webView.evaluateJavascript("window.__rfAutoNextOn ? window.__rfAutoNextOn() : null", this::updateFilmButton);
+    }
+
+    private void updateFilmButton(String r) {
+        if (filmButton == null) return;
+        if ("true".equals(r)) filmButton.setText("\uD83C\uDFAC \u2713");
+        else if ("false".equals(r)) filmButton.setText("\uD83C\uDFAC \u2717");
+        else filmButton.setText("\uD83C\uDFAC");
+    }
+
     private void showCinemaControls() {
+        refreshFilmButton();
         cinemaControls.setVisibility(View.VISIBLE);
         handler.removeCallbacks(hideCinemaControls);
         handler.postDelayed(hideCinemaControls, 4000);
@@ -534,7 +561,13 @@ public class MainActivity extends Activity {
         timeLabel.setTextSize(13);
         timeLabel.setText("0:00 / 0:00");
         top.addView(timeLabel, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-        top.addView(cinemaButton("\uD83D\uDEE0", this::showDiagnostic));
+        filmButton = cinemaButton("\uD83C\uDFAC", this::toggleFilmMode);
+        top.addView(filmButton);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.leftMargin = dp(8);
+        Button diag = cinemaButton("\uD83D\uDEE0", this::showDiagnostic);
+        top.addView(diag, gap);
         Button close = cinemaButton("\u2715 Ie\u0219i", this::exitCinema);
         LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

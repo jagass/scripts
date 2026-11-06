@@ -21,6 +21,7 @@ La prima pornire Windows poate afisa "Windows a protejat PC-ul" (aplicatia nu e 
 | ↑ / PageUp / P | episodul anterior |
 | ← / → | -10s / +10s |
 | Space / K | pauza / pornire |
+| A | Mod film pornit/oprit (urmatorul episod porneste automat la final) |
 | F11 | ecran complet |
 | Esc | iesire din ecran complet |
 | F5 | reincarca pagina |

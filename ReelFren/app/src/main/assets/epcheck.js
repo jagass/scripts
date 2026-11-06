@@ -139,7 +139,12 @@
   }
 
   // --- interfata -------------------------------------------------------------------------
-  var btn = null, panel = null;
+  var btn = null, panel = null, filmBtn = null;
+
+  function filmLabel() {
+    var on = window.__rfAutoNextOn ? window.__rfAutoNextOn() : true;
+    return '\uD83C\uDFAC Mod film: ' + (on ? 'Pornit' : 'Oprit');
+  }
 
   function ensureUi() {
     if (btn) return;
@@ -157,7 +162,9 @@
       '#rf-epcheck .rf-bad{margin-top:10px;font-size:13px;color:#fca5a5}' +
       '#rf-epcheck .rf-act{display:flex;gap:8px;margin-top:14px}' +
       '#rf-epcheck .rf-act button{flex:1;padding:11px;border-radius:12px;border:0;font:600 14px system-ui}' +
-      'html[data-rf-cinema] #rf-epcheck-btn,html[data-rf-cinema] #rf-epcheck{display:none!important}';
+      '#rf-film-btn{position:fixed;left:50%;top:102px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
+      'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
+      'html[data-rf-cinema] #rf-epcheck-btn,html[data-rf-cinema] #rf-epcheck,html[data-rf-cinema] #rf-film-btn{display:none!important}';
     document.head.appendChild(css);
 
     btn = document.createElement('button');
@@ -175,6 +182,16 @@
       if (!running) checkAll();
     }, true);
     document.body.appendChild(btn);
+
+    filmBtn = document.createElement('button');
+    filmBtn.id = 'rf-film-btn';
+    filmBtn.textContent = filmLabel();
+    filmBtn.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      if (window.__rfToggleAutoNext) window.__rfToggleAutoNext();
+      filmBtn.textContent = filmLabel();
+    }, true);
+    document.body.appendChild(filmBtn);
 
     panel = document.createElement('div');
     panel.id = 'rf-epcheck';
@@ -230,7 +247,9 @@
       ensureUi();
       btn.style.display = '';
       if (go) btn.dataset.go = go; else delete btn.dataset.go;
-    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; }
+      filmBtn.style.display = onWatch && window.__rfAutoNextOn ? '' : 'none';
+      filmBtn.textContent = filmLabel();
+    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; }
 
     // pornire automata dupa ce am venit de pe pagina de prezentare
     if (onWatch && !running) {
