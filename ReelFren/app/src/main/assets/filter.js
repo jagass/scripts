@@ -73,7 +73,7 @@
     var items = [];
     for (var i = 0; i < links.length; i++) {
       var a = links[i];
-      if (panel && panel.contains(a)) continue;
+      if (a.closest('[id^="rf-"]')) continue; // elementele aplicatiei (lista din memorie, panouri)
       var key = cardKey(a);
       if (!key) continue;
       items.push([a, key, a.href]);
@@ -137,6 +137,27 @@
     return src.indexOf('data:') === 0 ? '' : src;
   }
 
+  // titlul din adresa: /drama/flextv2/14912-bad-eyes-sweet-lies -> "Bad Eyes Sweet Lies"
+  function slugTitle(key) {
+    var slug = key ? (key.split('/')[1] || '') : '';
+    return slug.replace(/^\d+-?/, '').split('-').filter(Boolean).map(function (w) {
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    }).join(' ');
+  }
+
+  // titlul afisat pe card (NU descrierea): element de titlu, apoi textul pozei, apoi adresa
+  function cardTitle(el, key) {
+    var cands = el.querySelectorAll('h1, h2, h3, h4, h5, h6, [class*="title" i], [class*="name" i]');
+    for (var i = 0; i < cands.length; i++) {
+      var t = (cands[i].textContent || '').replace(/\s+/g, ' ').trim();
+      if (t.length >= 2 && t.length <= 120 && !EP_RX.test(t) && !/^watch now$/i.test(t)) return t;
+    }
+    var img = el.querySelector('img[alt]');
+    var alt = img ? (img.getAttribute('alt') || '').trim() : '';
+    if (alt.length >= 2 && alt.length <= 120 && !/^(poster|cover|image|thumbnail|img)$/i.test(alt)) return alt;
+    return slugTitle(key);
+  }
+
   function parseCard(el, idx, key, href) {
     var info = { el: el, key: key, href: href || '', idx: idx, ep: 0, rating: 0, plat: '', title: '', name: '', img: '' };
     var longest = '', w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -167,7 +188,7 @@
     // platforma din link (/drama/<platforma>/...) e mai sigura decat textul de pe card
     if (key) info.plat = key.split('/')[0].toUpperCase();
     var img = el.querySelector('img[alt]');
-    info.name = longest || (img && img.alt) || (key ? key.split('/')[1].replace(/^\d+-?/, '').replace(/-/g, ' ') : '');
+    info.name = cardTitle(el, key) || longest;
     info.img = imgOf(el);
     info.title = ((longest || '') + ' ' + ((img && img.alt) || '') + ' ' + (key ? key.split('/')[1].replace(/^\d+-?/, '').replace(/-/g, ' ') : '')).toLowerCase();
     return info;
@@ -381,7 +402,12 @@
     try { cat = JSON.parse(localStorage.getItem(CAT_KEY)); } catch (e) { cat = null; }
     if (!cat || !cat.items) cat = { items: [], lastFull: 0 };
     catMap = {};
-    cat.items.forEach(function (it) { catMap[it.k] = it; });
+    cat.items.forEach(function (it) {
+      // versiunile anterioare salvau uneori descrierea in loc de titlu: o inlocuim cu titlul din adresa
+      if (!it.n || it.n.length > 90) { it.n = slugTitle(it.k); catDirty = true; }
+      catMap[it.k] = it;
+    });
+    if (catDirty) setTimeout(catSave, 0);
   }
   function catSave() {
     catDirty = false;
@@ -417,7 +443,7 @@
         if (c.ep) it.e = c.ep;
         if (c.rating) it.r = c.rating;
         if (c.img && !it.i) it.i = c.img;
-        if (c.name && !it.n) it.n = c.name;
+        if (c.name && c.name !== it.n) { it.n = c.name; catDirty = true; }
       }
     });
     if (fresh.length) {
