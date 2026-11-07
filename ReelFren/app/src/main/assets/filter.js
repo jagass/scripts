@@ -206,6 +206,7 @@
     // pe pagina unui serial (prezentare / vizionare) filtrul n-are rost si ar acoperi butoanele site-ului
     if (/^\/(drama|watch)\//.test(location.pathname)) {
       if (btn) btn.style.display = 'none';
+      var fb = document.getElementById('rf-load-fab'); if (fb) fb.style.display = 'none';
       if (panel) panel.style.display = 'none';
       cards.forEach(function (c) { c.el.removeAttribute('data-rf-hide'); });
       if (catalogVisible()) hideCatalog(false);
@@ -218,6 +219,8 @@
     btn.style.display = 'flex';
     updateCatalogVisibility();
     if (cards.length >= 3) maybeAutoLoad();
+    var fabEl = document.getElementById('rf-load-fab');
+    if (fabEl) fabEl.style.display = !catalogVisible() && isListPage() && cards.length >= 3 ? 'block' : 'none';
     if (catalogVisible()) {
       // pagina site-ului e ascunsa sub lista: nu mai ascundem/sortam mii de carduri invizibile
       if (JSON.stringify(state) !== lastCatSig) renderCatalogSoon();
@@ -233,6 +236,7 @@
 
     cards.forEach(function (c) {
       var ok = c.ep >= min && c.ep <= max;
+      if (ok && c.key && !showSeen && isSeen(c.key)) ok = false; // serial marcat ca vazut
       if (ok && state.plats.length) ok = state.plats.indexOf(c.plat) >= 0;
       if (ok && words.length) ok = titleMatches(c.name || c.title, words);
       if (ok) { if (c.el.hasAttribute('data-rf-hide')) c.el.removeAttribute('data-rf-hide'); }
@@ -348,6 +352,7 @@
       lb.textContent = '⏹ Opreste (' + cards.length + ' incarcate)';
       var lbl = mode === 'new' ? '🔄 Caut seriale noi… ' + cards.length : '⏳ Se încarcă toate… ' + cards.length;
       btn.textContent = lbl;
+      loadButtons(true, cards.length);
       catalogStatus(mode === 'new' ? '🔄 caut seriale noi…' : '⏳ actualizez lista… ' + cards.length);
     }
     var finished = loading; // false = oprit de tine
@@ -355,6 +360,7 @@
     if (finished && mode === 'full' && same >= 4) catalogMarkFull();
     lb.textContent = '⬇️ Incarca tot';
     btn.textContent = '';
+    loadButtons(false);
     catalogMerge(true);
     catalogStatus(null);
     if (catalogVisible() && catNeedsRender) renderCatalog();
@@ -368,6 +374,7 @@
     return location.pathname === '/' || /explore|search|category|categories|genre|platform|browse|list|trending|new/i.test(location.pathname);
   }
   function maybeAutoLoad() {
+    return; // incarcarea porneste doar din butoane (la cererea ta), nu automat
     var key = location.pathname + location.search;
     if (autoLoadedFor === key || loading || !isListPage()) return;
     autoLoadedFor = key;
@@ -421,6 +428,27 @@
   document.addEventListener('visibilitychange', function () { if (document.hidden) saveNow(); });
   window.addEventListener('pagehide', saveNow);
 
+  // --- seriale vazute (ascunse din liste, la cererea ta) ---
+  var SEEN_KEY = 'rfSeen.v1';
+  var seen = null, showSeen = false;
+  function seenKey(k) {           // "platforma/id" (fara titlu), la fel pentru /drama/ si /watch/
+    var parts = String(k || '').split('/');
+    var id = (parts[1] || '').match(/^\d+/);
+    return parts[0] + '/' + (id ? id[0] : parts[1]);
+  }
+  function seenLoad() { if (!seen) { try { seen = JSON.parse(localStorage.getItem(SEEN_KEY)) || {}; } catch (e) { seen = {}; } } return seen; }
+  function seenSave() { try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch (e) {} }
+  function isSeen(k) { return !!seenLoad()[seenKey(k)]; }
+  function seenCount() { return Object.keys(seenLoad()).length; }
+  function toggleSeen(k) {
+    seenLoad();
+    var sk = seenKey(k);
+    if (seen[sk]) delete seen[sk]; else seen[sk] = Date.now();
+    seenSave();
+    return !!seen[sk];
+  }
+  window.addEventListener('storage', function (e) { if (e.key === SEEN_KEY) { seen = null; schedule(); } });
+
   function catalogReady() { catLoad(); return cat.items.length >= 30; }
   function catalogStale() { catLoad(); return Date.now() - (cat.lastFull || 0) > 12 * 3600 * 1000; }
   function catalogMarkFull() { catLoad(); cat.lastFull = Date.now(); catDirty = true; catSave(); }
@@ -453,7 +481,7 @@
       if (!first) catNewCount += fresh.length;
       if (catalogVisible()) {
         // NU redesenam lista (pozele s-ar reincarca si derularea ar sari); doar:
-        if (first && !isActive()) catList = cat.items;  // la final de lista apar singure cand derulezi
+        if (first && !isActive() && !seenCount()) catList = cat.items;  // la final de lista apar singure cand derulezi
         else catNeedsRender = true;                     // serialele noi de deasupra: o data, la final
         updateCatalogCount();
       }
@@ -479,6 +507,7 @@
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
     var words = searchWords();
     var list = cat.items.filter(function (it) {
+      if (!showSeen && isSeen(it.k)) return false;
       var e = it.e || 0;
       if (e && (e < min || e > max)) return false;
       if (!e && state.min !== '') return false;
@@ -496,13 +525,15 @@
 
   function cardHtml(it, now) {
     var isNew = it.f && now - it.f < NEW_DAYS * 86400000;
-    return '<a class="rf-c" href="' + esc(it.u) + '">' +
+    var sn = isSeen(it.k);
+    return '<a class="rf-c' + (sn ? ' rf-was' : '') + '" href="' + esc(it.u) + '" data-k="' + esc(it.k) + '">' +
       '<div class="rf-ci">' + (it.i ? '<img loading="lazy" src="' + esc(it.i) + '" alt="">' : '') +
       (isNew ? '<span class="rf-new">NOU</span>' : '') +
       (it.e ? '<span class="rf-ep">' + it.e + ' EP</span>' : '') +
       (it.r ? '<span class="rf-rt">★ ' + it.r + '</span>' : '') +
       (it.p ? '<span class="rf-pl">' + esc(it.p) + '</span>' : '') + '</div>' +
-      '<div class="rf-cn">' + esc(it.n || it.k) + '</div></a>';
+      '<div class="rf-cn">' + esc(it.n || it.k) + '</div>' +
+      '<button class="rf-seen" type="button">' + (sn ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut') + '</button></a>';
   }
 
   function renderMore() {
@@ -518,7 +549,7 @@
     if (!catEl) return;
     catNeedsRender = false;
     lastCatSig = JSON.stringify(state);
-    catList = isActive() ? catalogFiltered() : cat.items;
+    catList = isActive() || seenCount() ? catalogFiltered() : cat.items;
     catShown = 0;
     catGrid.innerHTML = '';
     renderMore();
@@ -551,7 +582,14 @@
         '.rf-ci img{width:100%;height:100%;object-fit:cover;display:block}' +
         '.rf-ci span{position:absolute;font:600 10px system-ui;padding:2px 6px;border-radius:6px;background:#000a;color:#fff}' +
         '.rf-new{top:4px;left:4px;background:#e11d48!important}.rf-ep{top:4px;right:4px}.rf-rt{bottom:4px;right:4px}.rf-pl{bottom:4px;left:4px;color:#5eead4!important}' +
-        '.rf-cn{font-size:12px;line-height:1.3;margin:4px 2px 6px;max-height:3.9em;overflow:hidden}' +
+        '.rf-cn{font-size:12px;line-height:1.3;margin:4px 2px 4px;max-height:3.9em;overflow:hidden}' +
+        '.rf-seen{display:block;width:100%;margin:0 0 8px;padding:5px 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#cbd5e1;font:600 11px system-ui}' +
+        '.rf-c.rf-was{opacity:.45}' +
+        '#rf-cat-bar{display:flex;gap:6px;padding:0 12px}' +
+        '#rf-cat-bar button{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 12px system-ui}' +
+        '#rf-cat-bar button.on{background:#0f766e;border-color:#5eead4;color:#fff}' +
+        '#rf-load-fab{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:9px 14px;border-radius:20px;border:1px solid #2dd4bf;' +
+        'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
         '#rf-cat-open{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:9px 14px;border-radius:20px;border:1px solid #2dd4bf;' +
         'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
         'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}' +
@@ -563,6 +601,8 @@
       catEl.id = 'rf-cat';
       catEl.innerHTML = '<div id="rf-cat-top"><div><b>📚 Toate serialele</b><br><span id="rf-cat-count"></span></div>' +
         '<span id="rf-cat-status"></span><button id="rf-cat-site">🌐 Site</button></div>' +
+        '<div id="rf-cat-bar"><button id="rf-cat-new">\uD83D\uDD04 Caut\u0103 noi</button><button id="rf-cat-all">\u2B07\uFE0F \u00CEncarc\u0103 tot</button>' +
+        '<button id="rf-cat-seen"></button></div>' +
         '<input id="rf-cat-q" type="search" placeholder="Caută după titlu…">' +
         '<div id="rf-cat-scroll"><div id="rf-cat-grid"></div></div>';
       document.body.appendChild(catEl);
@@ -574,10 +614,29 @@
       var q = catEl.querySelector('#rf-cat-q');
       q.addEventListener('input', function () { state.q = q.value; save(); if (panel) syncInputs(); renderCatalogSoon(); });
       catEl.querySelector('#rf-cat-site').addEventListener('click', function () { hideCatalog(true); });
+      // incarcare doar la cererea ta: serialele noi / toata lista; acelasi buton opreste
+      catEl.querySelector('#rf-cat-new').addEventListener('click', function () { loadAll(loading ? null : 'new'); });
+      catEl.querySelector('#rf-cat-all').addEventListener('click', function () { loadAll(loading ? null : 'full'); });
+      catEl.querySelector('#rf-cat-seen').addEventListener('click', function () { showSeen = !showSeen; renderCatalog(); updateSeenButton(); });
       catGrid.addEventListener('click', function (e) {
         var a = e.target.closest('a.rf-c');
         if (!a) return;
         e.preventDefault();
+        if (e.target.closest('.rf-seen')) {
+          var nowSeen = toggleSeen(a.dataset.k);
+          if (nowSeen && !showSeen) {
+            // il scoatem din lista fara sa redesenam tot (derularea ramane pe loc)
+            if (catList === cat.items) catList = catalogFiltered();
+            else { var idx = catList.indexOf(catMap[a.dataset.k]); if (idx >= 0) catList.splice(idx, 1); }
+            catShown = Math.max(0, catShown - 1);
+            a.remove();
+          } else {
+            a.classList.toggle('rf-was', nowSeen);
+            a.querySelector('.rf-seen').textContent = nowSeen ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut';
+          }
+          updateSeenButton(); updateCatalogCount();
+          return;
+        }
         if (window.RFBridge) window.RFBridge.postMessage('open:' + a.href); else location.href = a.href;
       });
       var openBtn = document.createElement('button');
@@ -587,6 +646,8 @@
       document.body.appendChild(openBtn);
     }
     catEl.querySelector('#rf-cat-q').value = state.q;
+    updateSeenButton();
+    loadButtons(loading, cards.length);
     catEl.style.display = 'flex';
     document.documentElement.setAttribute('data-rf-catalog', '');
     fitAboveSiteMenu();
@@ -623,6 +684,27 @@
     if (ob) ob.style.bottom = (h ? Math.ceil(h) + 66 : 150) + 'px';
   }
   setInterval(function () { if (catalogVisible()) fitAboveSiteMenu(); }, 4000);
+
+  function updateSeenButton() {
+    if (!catEl) return;
+    var b = catEl.querySelector('#rf-cat-seen');
+    var n = seenCount();
+    b.textContent = (showSeen ? '\uD83D\uDC41 Ascunde v\u0103zute' : '\uD83D\uDC41 V\u0103zute') + ' (' + n + ')';
+    b.classList.toggle('on', showSeen);
+  }
+
+  // butoanele de incarcare: pe lista ta (sus) si pe paginile site-ului (langa Filtru)
+  function loadButtons(isLoading, n) {
+    var stop = '\u23F9 Opre\u0219te' + (n ? ' (' + n + ')' : '');
+    if (catEl) {
+      var bn = catEl.querySelector('#rf-cat-new'), ba = catEl.querySelector('#rf-cat-all');
+      bn.textContent = isLoading ? stop : '\uD83D\uDD04 Caut\u0103 noi';
+      ba.textContent = isLoading ? stop : '\u2B07\uFE0F \u00CEncarc\u0103 tot';
+      bn.classList.toggle('on', !!isLoading); ba.classList.toggle('on', !!isLoading);
+    }
+    var fab = document.getElementById('rf-load-fab');
+    if (fab) fab.textContent = isLoading ? stop : '\u2B07\uFE0F \u00CEncarc\u0103 toate';
+  }
 
   function hideCatalog(byUser) {
     if (!catEl) return;
@@ -664,6 +746,12 @@
       '#rf-btn,#rf-panel button{touch-action:manipulation;-webkit-tap-highlight-color:transparent}' +
       '#rf-diag{width:100%;height:160px;margin-top:8px;font:11px monospace;background:#020617;color:#a7f3d0;border:1px solid #334155;border-radius:8px}';
     document.head.appendChild(css);
+
+    var fab = document.createElement('button');
+    fab.id = 'rf-load-fab';
+    fab.textContent = '\u2B07\uFE0F \u00CEncarc\u0103 toate';
+    tap(fab, function () { loadAll(loading ? null : 'full'); });
+    document.body.appendChild(fab);
 
     btn = document.createElement('button');
     btn.id = 'rf-btn';

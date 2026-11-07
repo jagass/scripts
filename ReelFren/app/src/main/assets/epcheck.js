@@ -139,7 +139,21 @@
   }
 
   // --- interfata -------------------------------------------------------------------------
-  var btn = null, panel = null, filmBtn = null;
+  var btn = null, panel = null, filmBtn = null, seenBtn = null;
+
+  // --- "Am vazut serialul": il ascunde din liste (aceeasi memorie ca lista din filter.js) ---
+  var SEEN_KEY = 'rfSeen.v1';
+  function pageSeenKey() {
+    var m = location.pathname.match(/^\/(?:drama|watch)\/([^\/?#]+)\/([^\/?#]+)/);
+    if (!m) return null;
+    var id = m[2].match(/^\d+/);
+    return m[1] + '/' + (id ? id[0] : m[2]);
+  }
+  function seenMap() { try { return JSON.parse(localStorage.getItem(SEEN_KEY)) || {}; } catch (e) { return {}; } }
+  function seenLabel() {
+    var k = pageSeenKey();
+    return k && seenMap()[k] ? '\u21A9 Nu l-am v\u0103zut' : '\u2713 Am v\u0103zut serialul';
+  }
 
   function filmLabel() {
     var on = window.__rfAutoNextOn ? window.__rfAutoNextOn() : true;
@@ -162,6 +176,9 @@
       '#rf-epcheck .rf-bad{margin-top:10px;font-size:13px;color:#fca5a5}' +
       '#rf-epcheck .rf-act{display:flex;gap:8px;margin-top:14px}' +
       '#rf-epcheck .rf-act button{flex:1;padding:11px;border-radius:12px;border:0;font:600 14px system-ui}' +
+      '#rf-seen-btn{position:fixed;left:50%;top:140px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
+      'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
+      'html[data-rf-cinema] #rf-seen-btn{display:none!important}' +
       '#rf-film-btn{position:fixed;left:50%;top:102px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
       'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
       'html[data-rf-cinema] #rf-epcheck-btn,html[data-rf-cinema] #rf-epcheck,html[data-rf-cinema] #rf-film-btn{display:none!important}';
@@ -192,6 +209,19 @@
       filmBtn.textContent = filmLabel();
     }, true);
     document.body.appendChild(filmBtn);
+
+    seenBtn = document.createElement('button');
+    seenBtn.id = 'rf-seen-btn';
+    seenBtn.textContent = seenLabel();
+    seenBtn.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      var k = pageSeenKey(); if (!k) return;
+      var m = seenMap();
+      if (m[k]) delete m[k]; else m[k] = Date.now();
+      try { localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (err) {}
+      seenBtn.textContent = seenLabel();
+    }, true);
+    document.body.appendChild(seenBtn);
 
     panel = document.createElement('div');
     panel.id = 'rf-epcheck';
@@ -249,7 +279,10 @@
       if (go) btn.dataset.go = go; else delete btn.dataset.go;
       filmBtn.style.display = onWatch && window.__rfAutoNextOn ? '' : 'none';
       filmBtn.textContent = filmLabel();
-    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; }
+      seenBtn.style.display = pageSeenKey() ? '' : 'none';
+      seenBtn.style.top = onWatch ? '140px' : '102px';
+      seenBtn.textContent = seenLabel();
+    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; seenBtn.style.display = 'none'; }
 
     // pornire automata dupa ce am venit de pe pagina de prezentare
     if (onWatch && !running) {
