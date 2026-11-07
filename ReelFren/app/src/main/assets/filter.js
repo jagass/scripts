@@ -197,7 +197,13 @@
     btn.style.display = 'flex';
     updateCatalogVisibility();
     if (cards.length >= 3) maybeAutoLoad();
-    if (catalogVisible() && JSON.stringify(state) !== lastCatSig) renderCatalogSoon();
+    if (catalogVisible()) {
+      // pagina site-ului e ascunsa sub lista: nu mai ascundem/sortam mii de carduri invizibile
+      if (JSON.stringify(state) !== lastCatSig) renderCatalogSoon();
+      btn.classList.toggle('on', !!isActive());
+      if (!loading) btn.textContent = '\u2699\uFE0F Filtru';
+      return;
+    }
 
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
@@ -384,6 +390,11 @@
       try { localStorage.setItem(CAT_KEY, JSON.stringify({ items: cat.items.map(function (it) { var c = Object.assign({}, it); c.i = ''; return c; }), lastFull: cat.lastFull })); } catch (e2) {}
     }
   }
+  // salvare imediata cand iesi din aplicatie / pagina (ca lista sa nu ramana incompleta)
+  function saveNow() { if (catDirty) { clearTimeout(catSaveTimer); catSave(); } }
+  document.addEventListener('visibilitychange', function () { if (document.hidden) saveNow(); });
+  window.addEventListener('pagehide', saveNow);
+
   function catalogReady() { catLoad(); return cat.items.length >= 30; }
   function catalogStale() { catLoad(); return Date.now() - (cat.lastFull || 0) > 12 * 3600 * 1000; }
   function catalogMarkFull() { catLoad(); cat.lastFull = Date.now(); catDirty = true; catSave(); }
@@ -502,12 +513,12 @@
     if (!catEl) {
       var css = document.createElement('style');
       css.textContent =
-        '#rf-cat{position:fixed;inset:0;z-index:2147483600;background:#0b0f19;color:#e5e7eb;font:14px system-ui,sans-serif;display:flex;flex-direction:column}' +
+        '#rf-cat{position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483600;background:#0b0f19;color:#e5e7eb;font:14px system-ui,sans-serif;display:flex;flex-direction:column}' +
         '#rf-cat-top{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #1f2937;background:#0b1220}' +
         '#rf-cat-top b{font-size:16px;color:#fff}#rf-cat-count{color:#94a3b8;font-size:12px}#rf-cat-status{margin-left:auto;font-size:12px;color:#5eead4}' +
         '#rf-cat-site{padding:7px 10px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 13px system-ui}' +
         '#rf-cat-q{margin:8px 12px;padding:10px;border-radius:10px;border:1px solid #334155;background:#111827;color:#fff;font-size:15px}' +
-        '#rf-cat-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 8px 140px}' +
+        '#rf-cat-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 8px 90px}' +
         '#rf-cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px}' +
         '.rf-c{display:block;color:#e5e7eb;text-decoration:none}' +
         '.rf-ci{position:relative;aspect-ratio:3/4;border-radius:10px;overflow:hidden;background:#1f2937}' +
@@ -519,8 +530,8 @@
         'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
         'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}' +
         // in spatele listei, pagina site-ului nu-si mai afiseaza (si nu mai descarca) pozele
-        'html[data-rf-catalog] body>:not([id^="rf-"]) img,html[data-rf-catalog] body>:not([id^="rf-"]) video{display:none!important}' +
-        'html[data-rf-catalog],html[data-rf-catalog] body{overflow:hidden}';
+        'html[data-rf-catalog] a[href*="/drama/"] img,html[data-rf-catalog] a[href*="/watch/"] img{display:none!important}' +
+        '';
       document.head.appendChild(css);
       catEl = document.createElement('div');
       catEl.id = 'rf-cat';
@@ -552,10 +563,40 @@
     catEl.querySelector('#rf-cat-q').value = state.q;
     catEl.style.display = 'flex';
     document.documentElement.setAttribute('data-rf-catalog', '');
+    fitAboveSiteMenu();
     document.getElementById('rf-cat-open').style.display = 'none';
     renderCatalog();
     catalogStatus(loading ? '🔄 caut seriale noi…' : null);
   }
+
+  // lasam vizibila bara de meniu de jos a site-ului (Home, Search, Explore...)
+  function siteBottomBar() {
+    var stack = document.elementsFromPoint ? document.elementsFromPoint(innerWidth / 2, innerHeight - 4) : [];
+    for (var i = 0; i < stack.length; i++) {
+      for (var p = stack[i]; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        if (p.id && p.id.indexOf('rf-') === 0) break;
+        var cs = getComputedStyle(p);
+        if (cs.position === 'fixed' || cs.position === 'sticky') {
+          var r = p.getBoundingClientRect();
+          if (r.height > 30 && r.height < 160 && r.width > innerWidth * 0.6 && r.bottom >= innerHeight - 2) return r.height;
+          break;
+        }
+      }
+    }
+    return 0;
+  }
+  function fitAboveSiteMenu() {
+    if (!catEl) return;
+    var prev = catEl.style.display;
+    catEl.style.display = 'none';           // ca sa "vedem" ce e sub lista
+    var h = siteBottomBar();
+    catEl.style.display = prev;
+    catEl.style.bottom = h ? Math.ceil(h) + 'px' : '0';
+    var ob = document.getElementById('rf-cat-open');
+    if (btn) btn.style.bottom = (h ? Math.ceil(h) + 12 : 96) + 'px';
+    if (ob) ob.style.bottom = (h ? Math.ceil(h) + 66 : 150) + 'px';
+  }
+  setInterval(function () { if (catalogVisible()) fitAboveSiteMenu(); }, 4000);
 
   function hideCatalog(byUser) {
     if (!catEl) return;

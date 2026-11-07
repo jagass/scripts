@@ -67,6 +67,8 @@
   var hiddenAds = [];
   function deepSweep() {
     if (!document.body) return;
+    // cat timp e afisata lista din memorie, pagina site-ului (cu mii de carduri) e ascunsa: nu o parcurgem
+    if (document.documentElement.hasAttribute('data-rf-catalog')) return;
     var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), seen = new Set();
     while (w.nextNode()) {
       var v = w.currentNode.nodeValue;
