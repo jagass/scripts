@@ -360,6 +360,58 @@
     }
   }
 
+  // --- la finalul ultimului episod disponibil: "Povestea s-a terminat sau lipsesc episoade?" ---
+  var askedFor = null;
+  document.addEventListener('ended', function (e) {
+    var v = e.target;
+    if (!v || v.tagName !== 'VIDEO' || running) return;
+    var eps = episodes();
+    if (!eps.nums.length) return;
+    var last = eps.nums[eps.nums.length - 1];
+    if (eps.active !== last) return;
+    var k = pageSeenKey();
+    if (!k || askedFor === k) return;
+    askedFor = k;
+    setTimeout(function () { askAtEnd(k, last); }, 1800); // dupa "Mod film" (care ar incerca episodul urmator)
+  }, true);
+
+  function askAtEnd(k, last) {
+    // iesim din ecranul mare ca intrebarea sa se vada
+    try { if (window.RFBridge) window.RFBridge.postMessage('fs:exit'); } catch (e) {}
+    ensureUi();
+    panel.style.display = 'block';
+    panel.innerHTML = '<h3>Ai ajuns la ultimul episod disponibil (EP ' + last + ')</h3>' +
+      '<div class="rf-sum">Povestea s-a terminat sau ar mai trebui s\u0103 fie episoade?</div>' +
+      '<div class="rf-act" style="flex-direction:column">' +
+      '<button id="rf-end-inc" style="background:#b45309;color:#fff">\u26A0 Nu, lipsesc episoade (marcheaz\u0103 incomplet)</button>' +
+      '<button id="rf-end-done" style="background:#15803d;color:#fff">\u2713 Da, s-a terminat</button>' +
+      '<button id="rf-end-seen" style="background:#1f2937;color:#e5e7eb">\uD83D\uDC41 Marcheaz\u0103 ca v\u0103zut</button>' +
+      '<button id="rf-end-close" style="background:#111827;color:#94a3b8">\u00CEnchide</button></div>';
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest && e.target.closest('#rf-end-inc, #rf-end-done, #rf-end-seen, #rf-end-close');
+    if (!t) return;
+    e.stopPropagation(); e.preventDefault();
+    var k = pageSeenKey();
+    if (k && (t.id === 'rf-end-inc' || t.id === 'rf-end-done')) {
+      var st = epStatusMap(), r = st[k] || { t: 0, total: 0, bad: [], at: 0 };
+      r.inc = t.id === 'rf-end-inc';
+      st[k] = r;
+      try { localStorage.setItem('rfEpStatus.v1', JSON.stringify(st)); } catch (err) {}
+      if (incBtn) incBtn.textContent = incLabel();
+    }
+    if (k && t.id === 'rf-end-seen') {
+      var m = seenMap(); m[k] = Date.now();
+      try { localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (err) {}
+      if (seenBtn) seenBtn.textContent = seenLabel();
+    }
+    if (t.id === 'rf-end-seen' || t.id === 'rf-end-close' || t.id === 'rf-end-done' || t.id === 'rf-end-inc') {
+      if (t.id === 'rf-end-close' || t.id === 'rf-end-seen') panel.style.display = 'none';
+      else t.textContent = '\u2713 Salvat';
+    }
+  }, true);
+
   window.__rfCheckEpisodes = checkAll; // pentru teste
 
   function start() { refresh(); setInterval(refresh, 1500); }
