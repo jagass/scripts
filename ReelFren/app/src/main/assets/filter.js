@@ -607,8 +607,7 @@
         '#rf-cat-bar{display:flex;gap:6px;padding:0 12px}' +
         '#rf-cat-bar button{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 12px system-ui}' +
         '#rf-cat-bar button.on{background:#0f766e;border-color:#5eead4;color:#fff}' +
-        '#rf-load-fab{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:9px 14px;border-radius:20px;border:1px solid #2dd4bf;' +
-        'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
+
         '#rf-cat-open{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:9px 14px;border-radius:20px;border:1px solid #2dd4bf;' +
         'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
         'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}' +
@@ -748,6 +747,9 @@
       'padding:10px 16px;border-radius:24px;border:1px solid #2dd4bf;background:#0b1220ee;color:#e6fffb;' +
       'font:600 15px system-ui,sans-serif;box-shadow:0 4px 16px #0008}' +
       '#rf-btn.on{background:#0f766e;border-color:#5eead4}' +
+      // butonul "Incarca toate" (deasupra lui Filtru); stilul e aici ca sa existe si fara lista din memorie
+      '#rf-load-fab{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:10px 16px;border-radius:22px;border:1px solid #2dd4bf;' +
+      'background:#0f766e;color:#fff;font:600 15px system-ui,sans-serif;box-shadow:0 4px 16px #0008;display:none}' +
       '#rf-panel{position:fixed;left:0;right:0;bottom:0;z-index:2147483647;max-height:80vh;overflow:auto;' +
       'background:#0b1220;color:#e5e7eb;border-top:1px solid #2dd4bf;border-radius:16px 16px 0 0;' +
       'padding:16px 16px 24px;font:15px system-ui,sans-serif;box-shadow:0 -8px 24px #000a;display:none}' +
