@@ -24,6 +24,19 @@
   }
   function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
 
+  // cautare: TOATE cuvintele trebuie sa fie in titlu (fara diferenta intre litere mari/mici sau diacritice)
+  function norm(t) {
+    t = String(t || '').toLowerCase();
+    try { t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+    return t.replace(/[^a-z0-9]+/g, ' ');
+  }
+  function searchWords() { return norm(state.q).split(' ').filter(Boolean); }
+  function titleMatches(title, words) {
+    if (!words.length) return true;
+    var t = ' ' + norm(title) + ' ';
+    return words.every(function (w) { return t.indexOf(w) >= 0; });
+  }
+
   function isActive() {
     return state.sort !== 'default' || state.min !== '' || state.max !== '' || state.plats.length || state.q.trim();
   }
@@ -184,17 +197,17 @@
     btn.style.display = 'flex';
     updateCatalogVisibility();
     if (cards.length >= 3) maybeAutoLoad();
-    if (catalogVisible()) renderCatalogSoon();
+    if (catalogVisible() && JSON.stringify(state) !== lastCatSig) renderCatalogSoon();
 
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
-    var words = state.q.toLowerCase().split(/[,\s]+/).filter(Boolean);
+    var words = searchWords();
     var shown = 0;
 
     cards.forEach(function (c) {
       var ok = c.ep >= min && c.ep <= max;
       if (ok && state.plats.length) ok = state.plats.indexOf(c.plat) >= 0;
-      if (ok && words.length) ok = words.some(function (w) { return c.title.indexOf(w) >= 0; });
+      if (ok && words.length) ok = titleMatches(c.name || c.title, words);
       if (ok) { if (c.el.hasAttribute('data-rf-hide')) c.el.removeAttribute('data-rf-hide'); }
       else if (!c.el.hasAttribute('data-rf-hide')) c.el.setAttribute('data-rf-hide', '');
       if (ok) shown++;
@@ -307,7 +320,7 @@
       if (mode === 'new') knownSteps = n === 0 ? knownSteps + 1 : 0;
       lb.textContent = '⏹ Opreste (' + cards.length + ' incarcate)';
       var lbl = mode === 'new' ? '🔄 Caut seriale noi… ' + cards.length : '⏳ Se încarcă toate… ' + cards.length;
-      btn.textContent = lbl + ' · atinge = stop';
+      btn.textContent = lbl;
       catalogStatus(mode === 'new' ? '🔄 caut seriale noi…' : '⏳ actualizez lista… ' + cards.length);
     }
     var finished = loading; // false = oprit de tine
@@ -317,6 +330,7 @@
     btn.textContent = '';
     catalogMerge(true);
     catalogStatus(null);
+    if (catalogVisible() && catNeedsRender) renderCatalog();
     apply();
     if (!openedCard && !catalogVisible()) window.scrollTo(0, 0); // inapoi sus, la inceputul listei complete
   }
@@ -397,34 +411,42 @@
     });
     if (fresh.length) {
       // la prima incarcare pastram ordinea site-ului; dupa aceea, serialele noi merg deasupra
-      cat.items = first ? cat.items.concat(fresh) : fresh.concat(cat.items);
+      if (first) Array.prototype.push.apply(cat.items, fresh); else cat.items = fresh.concat(cat.items);
       catDirty = true;
       if (!first) catNewCount += fresh.length;
-      if (catalogVisible()) renderCatalogSoon();
+      if (catalogVisible()) {
+        // NU redesenam lista (pozele s-ar reincarca si derularea ar sari); doar:
+        if (first && !isActive()) catList = cat.items;  // la final de lista apar singure cand derulezi
+        else catNeedsRender = true;                     // serialele noi de deasupra: o data, la final
+        updateCatalogCount();
+      }
     }
     if (catDirty) {
       clearTimeout(catSaveTimer);
-      if (forceSave) catSave(); else catSaveTimer = setTimeout(catSave, 2000);
+      if (forceSave) catSave(); else catSaveTimer = setTimeout(catSave, 8000);
     }
     return fresh.length;
   }
 
   var catEl = null, catGrid = null, catShown = 0, catList = [], catNewCount = 0, catHiddenByUser = false, catRenderTimer = null;
+  var catNeedsRender = false, lastCatSig = '';
+  function updateCatalogCount() {
+    if (!catEl) return;
+    catEl.querySelector('#rf-cat-count').textContent =
+      (catList.length === cat.items.length ? cat.items.length : catList.length + ' din ' + cat.items.length) + ' seriale';
+  }
   function catalogVisible() { return !!catEl && catEl.style.display !== 'none'; }
 
   function catalogFiltered() {
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
-    var words = state.q.toLowerCase().split(/[,\s]+/).filter(Boolean);
+    var words = searchWords();
     var list = cat.items.filter(function (it) {
       var e = it.e || 0;
       if (e && (e < min || e > max)) return false;
       if (!e && state.min !== '') return false;
       if (state.plats.length && state.plats.indexOf(it.p) < 0) return false;
-      if (words.length) {
-        var t = ((it.n || '') + ' ' + it.k.replace(/-/g, ' ')).toLowerCase();
-        if (!words.some(function (w) { return t.indexOf(w) >= 0; })) return false;
-      }
+      if (words.length && !titleMatches(it.n || it.k.split('/')[1].replace(/^\d+-?/, ''), words)) return false;
       return true;
     });
     if (state.sort === 'ep-asc') list.sort(function (a, b) { return (a.e || 0) - (b.e || 0); });
@@ -457,12 +479,13 @@
 
   function renderCatalog() {
     if (!catEl) return;
-    catList = catalogFiltered();
+    catNeedsRender = false;
+    lastCatSig = JSON.stringify(state);
+    catList = isActive() ? catalogFiltered() : cat.items;
     catShown = 0;
     catGrid.innerHTML = '';
     renderMore();
-    catEl.querySelector('#rf-cat-count').textContent =
-      (catList.length === cat.items.length ? cat.items.length : catList.length + ' din ' + cat.items.length) + ' seriale';
+    updateCatalogCount();
     if (countEl) countEl.textContent = catList.length + ' din ' + cat.items.length + ' seriale (lista din memorie)';
   }
   function renderCatalogSoon() { clearTimeout(catRenderTimer); catRenderTimer = setTimeout(renderCatalog, 300); }
@@ -494,7 +517,10 @@
         '.rf-cn{font-size:12px;line-height:1.3;margin:4px 2px 6px;max-height:3.9em;overflow:hidden}' +
         '#rf-cat-open{position:fixed;right:16px;bottom:150px;z-index:2147483646;padding:9px 14px;border-radius:20px;border:1px solid #2dd4bf;' +
         'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
-        'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}';
+        'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}' +
+        // in spatele listei, pagina site-ului nu-si mai afiseaza (si nu mai descarca) pozele
+        'html[data-rf-catalog] body>:not([id^="rf-"]) img,html[data-rf-catalog] body>:not([id^="rf-"]) video{display:none!important}' +
+        'html[data-rf-catalog],html[data-rf-catalog] body{overflow:hidden}';
       document.head.appendChild(css);
       catEl = document.createElement('div');
       catEl.id = 'rf-cat';
@@ -525,6 +551,7 @@
     }
     catEl.querySelector('#rf-cat-q').value = state.q;
     catEl.style.display = 'flex';
+    document.documentElement.setAttribute('data-rf-catalog', '');
     document.getElementById('rf-cat-open').style.display = 'none';
     renderCatalog();
     catalogStatus(loading ? '🔄 caut seriale noi…' : null);
@@ -534,6 +561,7 @@
     if (!catEl) return;
     catHiddenByUser = !!byUser;
     catEl.style.display = 'none';
+    document.documentElement.removeAttribute('data-rf-catalog');
     var ob = document.getElementById('rf-cat-open');
     if (ob) ob.style.display = isHomeList() && catalogReady() ? 'block' : 'none';
   }
@@ -574,8 +602,7 @@
     btn.id = 'rf-btn';
     btn.textContent = '⚙️ Filtru';
     tap(btn, function () {
-      if (loading) { loading = false; return; } // oprire incarcare automata
-      panel.style.display = 'block'; syncInputs(); renderPlatforms();
+      panel.style.display = 'block'; syncInputs(); renderPlatforms(); // incarcarea se opreste din panou
     });
     document.body.appendChild(btn);
 
