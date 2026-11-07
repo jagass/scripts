@@ -2,7 +2,7 @@
   "id": "reelfren",
   "productName": "ReelFren",
   "appId": "net.reelfren.desktop",
-  "home": "https://reelfren.net/",
+  "home": "https://reelfren.net/explore",
   "domains": ["reelfren.net"],
   "icon": "build/icon.png"
 }

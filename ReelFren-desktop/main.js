@@ -105,10 +105,20 @@ const CLEAN_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
   CHROME_MAJOR + '.0.0.0 Safari/537.36';
 app.userAgentFallback = CLEAN_UA;
 
-function createWindow() {
+// Fereastra principala (lista de seriale) sau o fereastra noua pentru un serial (isChild):
+// lista ramane incarcata in fereastra principala cat timp te uiti la serial.
+function createWindow(url, isChild) {
   const b = loadBounds();
-  win = new BrowserWindow({
-    x: b.x, y: b.y, width: b.width || 1280, height: b.height || 860,
+  const main = !isChild;
+  let pos = {};
+  if (isChild && win && !win.isDestroyed()) {
+    const pb = win.getBounds();
+    pos = { x: pb.x + 30, y: pb.y + 30, width: pb.width, height: pb.height };
+  } else if (main) {
+    pos = { x: b.x, y: b.y, width: b.width || 1280, height: b.height || 860 };
+  }
+  const w = new BrowserWindow({
+    ...pos,
     minWidth: 400, minHeight: 500,
     title: APP_NAME,
     backgroundColor: '#101014',
@@ -121,45 +131,53 @@ function createWindow() {
       sandbox: true,
     },
   });
-  if (b.maximized) win.maximize();
+  if (main) {
+    win = w;
+    if (b.maximized) w.maximize();
+  } else if (win && !win.isDestroyed() && win.isMaximized()) {
+    w.maximize();
+  }
 
-  const wc = win.webContents;
+  const wc = w.webContents;
 
   // Pop-up-uri: blocate. Linkurile din site deschise "in fereastra noua" se deschid aici.
-  wc.setWindowOpenHandler(({ url }) => {
-    if (isAllowed(url)) wc.loadURL(url);
-    else if (fromUserClick(url)) { allowByUser(url); wc.loadURL(url); }
+  wc.setWindowOpenHandler(({ url: u }) => {
+    if (isAllowed(u)) wc.loadURL(u);
+    else if (fromUserClick(u)) { allowByUser(u); wc.loadURL(u); }
     return { action: 'deny' };
   });
   // Navigare spre alte domenii (reclame, redirecturi): blocata.
-  const guard = (e, url) => {
-    if (isAllowed(url)) return;
-    if (fromUserClick(url)) { allowByUser(url); return; }
+  const guard = (e, u) => {
+    if (isAllowed(u)) return;
+    if (fromUserClick(u)) { allowByUser(u); return; }
     e.preventDefault();
-    let host = url;
-    try { host = new URL(url).hostname; } catch (err) { /* ignore */ }
+    let host = u;
+    try { host = new URL(u).hostname; } catch (err) { /* ignore */ }
     wc.executeJavaScript('(function(){var d=document.createElement("div");d.textContent=' + JSON.stringify('Link extern blocat: ' + host) +
       ';d.style.cssText="position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.8);color:#fff;' +
       'font:14px system-ui;padding:8px 14px;border-radius:10px;pointer-events:none";document.body.appendChild(d);setTimeout(function(){d.remove()},2500)})()')
       .catch(() => {});
   };
   wc.on('will-navigate', guard);
-  wc.on('will-redirect', (e, url, isInPlace, isMainFrame) => { if (isMainFrame) guard(e, url); });
+  wc.on('will-redirect', (e, u, isInPlace, isMainFrame) => { if (isMainFrame) guard(e, u); });
 
-  // F11 = ecran complet, Esc = iesire din ecran complet
+  // F11 = ecran complet, Esc = iesire din ecran complet (in fereastra unui serial: inchide si revine la lista)
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
-    if (input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
-    else if (input.key === 'Escape' && win.isFullScreen()) { win.setFullScreen(false); e.preventDefault(); }
+    if (input.key === 'F11') { w.setFullScreen(!w.isFullScreen()); e.preventDefault(); }
+    else if (input.key === 'Escape' && w.isFullScreen()) { w.setFullScreen(false); e.preventDefault(); }
+    else if (input.key === 'Escape' && isChild) { w.close(); e.preventDefault(); }
     else if (input.key === 'F5') { wc.reload(); e.preventDefault(); }
     else if (input.key === 'F12') { wc.toggleDevTools(); e.preventDefault(); }
     else if (input.alt && input.key === 'ArrowLeft' && wc.navigationHistory.canGoBack()) { wc.navigationHistory.goBack(); e.preventDefault(); }
   });
 
-  win.on('close', () => saveBounds(win));
-  win.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(APP_NAME); });
+  if (main) w.on('close', () => { saveBounds(w); BrowserWindow.getAllWindows().forEach((o) => { if (o !== w) o.destroy(); }); });
+  w.on('closed', () => { if (isChild && win && !win.isDestroyed()) win.focus(); });
+  w.on('page-title-updated', (e) => { e.preventDefault(); w.setTitle(APP_NAME); });
 
-  wc.loadURL(HOME_URL);
+  wc.loadURL(url || HOME_URL);
+  return w;
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -215,12 +233,17 @@ if (!gotLock) {
     ipcMain.on('rf:scripts', (e) => {
       e.returnValue = challengeByWc.get(e.sender.id) ? '' : PAGE_SCRIPT;
     });
-    ipcMain.on('rf:fs', (e, on) => { if (win) win.setFullScreen(!!on); });
+    ipcMain.on('rf:fs', (e, on) => {
+      const w = BrowserWindow.fromWebContents(e.sender);
+      if (w) w.setFullScreen(!!on);
+    });
+    // un serial atins in lista: se deschide intr-o fereastra noua, lista ramane incarcata
+    ipcMain.on('rf:open', (e, url) => { if (isAllowed(url)) createWindow(url, true); });
     ipcMain.on('rf:click', (e, url) => {
       try { lastClick = { host: new URL(url).hostname.toLowerCase(), at: Date.now() }; } catch (err) { /* ignore */ }
     });
 
-    createWindow();
+    createWindow(HOME_URL, false);
   });
 
   app.on('window-all-closed', () => app.quit());

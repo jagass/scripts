@@ -10,8 +10,8 @@ android {
         applicationId 'net.reelfren.app'
         minSdk 26
         targetSdk 34
-        versionCode 24
-        versionName '3.3'
+        versionCode 25
+        versionName '3.4'
     }
 
     buildFeatures {
@@ -25,7 +25,7 @@ android {
         reelfren {
             dimension 'site'
             applicationId 'net.reelfren.app'
-            buildConfigField 'String', 'HOME_URL', '"https://reelfren.net/"'
+            buildConfigField 'String', 'HOME_URL', '"https://reelfren.net/explore"'
             buildConfigField 'String', 'ALLOWED_DOMAINS', '"reelfren.net"'
         }
         shortmax {

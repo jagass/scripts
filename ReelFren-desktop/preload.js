@@ -12,4 +12,5 @@ window.addEventListener('message', (e) => {
   if (m === 'fs:enter') ipcRenderer.send('rf:fs', true);
   else if (m === 'fs:exit') ipcRenderer.send('rf:fs', false);
   else if (m.indexOf('click:') === 0) ipcRenderer.send('rf:click', m.slice(6));
+  else if (m.indexOf('open:') === 0) ipcRenderer.send('rf:open', m.slice(5));
 });

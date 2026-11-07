@@ -110,8 +110,16 @@ public class MainActivity extends Activity {
         return false;
     }
     private boolean startScriptInjected = false;
-    /** Canale catre fiecare frame (pagina + iframe-ul playerului), ca sa putem derula video-ul. */
-    private final List<JavaScriptReplyProxy> frames = new ArrayList<>();
+    /** Canale catre fiecare frame (pagina + iframe-ul playerului), separat pentru fiecare pagina deschisa. */
+    private final java.util.Map<WebView, List<JavaScriptReplyProxy>> framesByView = new java.util.HashMap<>();
+    /** Paginile deschise, una peste alta: [0] = lista de seriale, ultima = cea vizibila (webView). */
+    private final List<WebView> tabs = new ArrayList<>();
+
+    private List<JavaScriptReplyProxy> framesOf(WebView v) {
+        List<JavaScriptReplyProxy> l = framesByView.get(v);
+        if (l == null) { l = new ArrayList<>(); framesByView.put(v, l); }
+        return l;
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -137,11 +145,6 @@ public class MainActivity extends Activity {
             }
         };
         root.setBackgroundColor(Color.parseColor("#101014"));
-
-        webView = new WebView(this);
-        webView.setBackgroundColor(Color.parseColor("#101014"));
-        root.addView(webView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -180,7 +183,30 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
-        WebSettings s = webView.getSettings();
+        playerJs = readAsset("player.js");
+        filterJs = readAsset("filter.js");
+        adblockJs = readAsset("adblock.js");
+        epcheckJs = readAsset("epcheck.js");
+        chromeClient = new ChromeClient();
+
+        webView = createWebView();
+        tabs.add(webView);
+        root.addView(webView, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        if (savedInstanceState != null) {
+            webView.restoreState(savedInstanceState);
+        } else {
+            webView.loadUrl(HOME_URL);
+        }
+    }
+
+    /** O pagina noua (WebView) cu toate setarile si scripturile aplicatiei. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private WebView createWebView() {
+        WebView w = new WebView(this);
+        w.setBackgroundColor(Color.parseColor("#101014"));
+        WebSettings s = w.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -197,40 +223,59 @@ public class MainActivity extends Activity {
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, true);
+        cookies.setAcceptThirdPartyCookies(w, true);
 
-        playerJs = readAsset("player.js");
-        filterJs = readAsset("filter.js");
-        adblockJs = readAsset("adblock.js");
-        epcheckJs = readAsset("epcheck.js");
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(webView, "RFBridge", Collections.singleton("*"),
-                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> onBridgeMessage(message.getData(), replyProxy));
+            WebViewCompat.addWebMessageListener(w, "RFBridge", Collections.singleton("*"),
+                    (view, message, sourceOrigin, isMainFrame, replyProxy) -> onBridgeMessage(view, message.getData(), replyProxy));
             cinemaSupported = true;
         }
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(webView, playerJs, Collections.singleton("*"));
-            WebViewCompat.addDocumentStartJavaScript(webView, adblockJs, Collections.singleton("*"));
+            WebViewCompat.addDocumentStartJavaScript(w, playerJs, Collections.singleton("*"));
+            WebViewCompat.addDocumentStartJavaScript(w, adblockJs, Collections.singleton("*"));
             // Butonul "Filtru" doar pe paginile site-ului (nu si in iframe-uri straine)
             java.util.Set<String> site = new java.util.HashSet<>();
             for (String d : ALLOWED_DOMAINS) {
                 site.add("https://" + d);
                 site.add("https://*." + d);
             }
-            WebViewCompat.addDocumentStartJavaScript(webView, filterJs, site);
-            WebViewCompat.addDocumentStartJavaScript(webView, epcheckJs, site);
+            WebViewCompat.addDocumentStartJavaScript(w, filterJs, site);
+            WebViewCompat.addDocumentStartJavaScript(w, epcheckJs, site);
             startScriptInjected = true;
         }
 
-        webView.setWebViewClient(new Client());
-        chromeClient = new ChromeClient();
-        webView.setWebChromeClient(chromeClient);
+        w.setWebViewClient(new Client());
+        w.setWebChromeClient(chromeClient);
 
-        if (savedInstanceState != null) {
-            webView.restoreState(savedInstanceState);
-        } else {
-            webView.loadUrl(HOME_URL);
-        }
+        return w;
+    }
+
+    /** Deschide un serial intr-o pagina noua, peste lista (care ramane incarcata). */
+    private void openTab(String url) {
+        if (cinema) exitCinema();
+        WebView w = createWebView();
+        webView.setVisibility(View.GONE);
+        root.addView(w, tabs.size(), new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tabs.add(w);
+        webView = w;
+        errorView.setVisibility(View.GONE);
+        w.loadUrl(url);
+    }
+
+    /** Inchide pagina de sus si revine la cea din spate (de ex. lista de seriale). */
+    private boolean closeTab() {
+        if (tabs.size() <= 1) return false;
+        if (cinema) exitCinema();
+        WebView top = tabs.remove(tabs.size() - 1);
+        root.removeView(top);
+        framesByView.remove(top);
+        top.destroy();
+        webView = tabs.get(tabs.size() - 1);
+        webView.setVisibility(View.VISIBLE);
+        errorView.setVisibility(View.GONE);
+        progress.setVisibility(View.GONE);
+        return true;
     }
 
     /** Site-uri deschise de tine printr-o atingere pe un link (ex. alta platforma din meniul site-ului). */
@@ -331,7 +376,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-            frames.clear();
+            framesOf(view).clear();
         }
 
         @Override
@@ -355,6 +400,7 @@ public class MainActivity extends Activity {
     private class ChromeClient extends WebChromeClient {
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
+            if (view != webView) return;
             progress.setProgress(newProgress);
             progress.setVisibility(newProgress < 100 ? View.VISIBLE : View.GONE);
         }
@@ -447,12 +493,22 @@ public class MainActivity extends Activity {
     }
 
     // --- mod cinema ----------------------------------------------------------
-    private void onBridgeMessage(String data, JavaScriptReplyProxy proxy) {
+    private void onBridgeMessage(WebView view, String data, JavaScriptReplyProxy proxy) {
         if (data == null) return;
         if (data.equals("hello")) {
-            if (!frames.contains(proxy)) frames.add(proxy);
-            if (cinema) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
-        } else if (data.startsWith("mode:")) {
+            List<JavaScriptReplyProxy> fr = framesOf(view);
+            if (!fr.contains(proxy)) fr.add(proxy);
+            if (cinema && view == webView) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
+            return;
+        }
+        if (data.startsWith("open:")) {
+            // un serial atins in lista: il deschidem intr-o pagina noua, lista ramane incarcata in spate
+            Uri u = Uri.parse(data.substring(5));
+            if (isWeb(u) && isAllowed(u)) openTab(u.toString());
+            return;
+        }
+        if (view != webView) return; // mesajele paginilor din spate nu conteaza
+        if (data.startsWith("mode:")) {
             cinemaLight = data.equals("mode:light");
             if (cinema) tapCatcher.setVisibility(cinemaLight ? View.GONE : View.VISIBLE);
         } else if (data.equals("auto:next")) {
@@ -478,7 +534,7 @@ public class MainActivity extends Activity {
     }
 
     private void broadcast(String msg) {
-        for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
+        for (JavaScriptReplyProxy p : new ArrayList<>(framesOf(webView))) {
             try { p.postMessage(msg); } catch (Exception ignored) { }
         }
     }
@@ -721,7 +777,7 @@ public class MainActivity extends Activity {
 
     private void seek(int seconds) {
         String msg = "seek:" + seconds;
-        for (JavaScriptReplyProxy p : new ArrayList<>(frames)) {
+        for (JavaScriptReplyProxy p : new ArrayList<>(framesOf(webView))) {
             try { p.postMessage(msg); } catch (Exception ignored) { }
         }
         // si direct in pagina principala (daca video-ul e acolo)
@@ -852,6 +908,8 @@ public class MainActivity extends Activity {
             webView.goBack();
         } else if (webView.canGoBack()) {
             webView.goBack();
+        } else if (closeTab()) {
+            // inapoi la lista de seriale, exact cum era
         } else {
             super.onBackPressed();
         }
@@ -871,7 +929,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        webView.destroy();
+        for (WebView w : tabs) w.destroy();
         super.onDestroy();
     }
 }

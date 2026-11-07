@@ -165,6 +165,7 @@
     if (cards.length < 3) { if (btn) btn.style.display = 'none'; return; }
     ensureUi();
     btn.style.display = 'flex';
+    maybeAutoLoad();
 
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
@@ -197,7 +198,7 @@
     btn.classList.toggle('on', !!isActive());
     var hiddenCount = cards.length - shown;
     var label = isActive() && hiddenCount > 0 ? '\u2699\uFE0F Filtru \u00B7 ' + hiddenCount + ' ascunse' : '\u2699\uFE0F Filtru';
-    if (btn.textContent !== label) btn.textContent = label;
+    if (!loading && btn.textContent !== label) btn.textContent = label;
     countEl.textContent = shown + ' din ' + cards.length + ' seriale incarcate';
     showAllHiddenNotice(isActive() && cards.length > 0 && shown === 0);
     renderPlatforms();
@@ -253,9 +254,11 @@
     return false;
   }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  var openedCard = false;
   async function loadAll() {
     if (loading) { loading = false; return; }
     loading = true;
+    openedCard = false;
     var lb = panel.querySelector('#rf-load');
     var last = -1, same = 0;
     while (loading && same < 4 && cards.length < 3000) {
@@ -264,13 +267,40 @@
       await sleep(1300);
       scan();
       if (cards.length === last) same++; else { same = 0; last = cards.length; }
-      lb.textContent = '⏹ Opreste (' + cards.length + ' incarcate)';
+      lb.textContent = '\u23F9 Opreste (' + cards.length + ' incarcate)';
+      btn.textContent = '\u23F3 Se \u00EEncarc\u0103 toate\u2026 ' + cards.length + ' \u00B7 atinge = stop';
     }
     loading = false;
-    lb.textContent = '⬇️ Incarca tot';
+    lb.textContent = '\u2B07\uFE0F Incarca tot';
+    btn.textContent = '';
     apply();
-    window.scrollTo(0, 0);
+    if (!openedCard) window.scrollTo(0, 0); // inapoi sus, la inceputul listei complete
   }
+
+  // Pagina cu liste (pagina principala, Explore, cautare): se incarca automat toate serialele, o data.
+  var autoLoadedFor = null;
+  function isListPage() {
+    return location.pathname === '/' || /explore|search|category|categories|genre|platform|browse|list|trending|new/i.test(location.pathname);
+  }
+  function maybeAutoLoad() {
+    var key = location.pathname + location.search;
+    if (autoLoadedFor === key || loading || !isListPage()) return;
+    autoLoadedFor = key;
+    setTimeout(function () { if (!loading) loadAll(); }, 800);
+  }
+
+  // Un serial atins in lista se deschide intr-o pagina noua (aplicatia), ca lista sa ramana incarcata.
+  document.addEventListener('click', function (e) {
+    if (!e.isTrusted || !window.RFBridge) return;
+    if (/^\/(drama|watch)\//.test(location.pathname)) return;
+    var a = e.target && e.target.closest && e.target.closest('a[href*="/drama/"], a[href*="/watch/"]');
+    if (!a || (panel && panel.contains(a))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (loading) { loading = false; openedCard = true; }
+    window.RFBridge.postMessage('open:' + a.href);
+  }, true);
 
   // --- interfata -----------------------------------------------------------
   function ensureUi() {
@@ -302,7 +332,10 @@
     btn = document.createElement('button');
     btn.id = 'rf-btn';
     btn.textContent = '⚙️ Filtru';
-    tap(btn, function () { panel.style.display = 'block'; syncInputs(); renderPlatforms(); });
+    tap(btn, function () {
+      if (loading) { loading = false; return; } // oprire incarcare automata
+      panel.style.display = 'block'; syncInputs(); renderPlatforms();
+    });
     document.body.appendChild(btn);
 
     panel = document.createElement('div');
