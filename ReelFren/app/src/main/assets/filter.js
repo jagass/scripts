@@ -15,7 +15,7 @@
   var btn, panel, countEl, platBox;
 
   function load() {
-    var d = { sort: 'default', min: '', max: '', plats: [], q: '' };
+    var d = { sort: 'default', min: '', max: '', plats: [], q: '', health: 'all' };
     // setarile tin doar cat e deschisa aplicatia (nu raman "agatate" si nu ascund rezultatele cautarii
     // la urmatoarea pornire); stergem si filtrul vechi salvat permanent de versiunile anterioare
     try { localStorage.removeItem(KEY); } catch (e) {}
@@ -38,7 +38,8 @@
   }
 
   function isActive() {
-    return state.sort !== 'default' || state.min !== '' || state.max !== '' || state.plats.length || state.q.trim();
+    return state.sort !== 'default' || state.min !== '' || state.max !== '' || state.plats.length || state.q.trim() ||
+      (state.health && state.health !== 'all');
   }
 
   // --- detectare carduri (rapid: fiecare card e citit o singura data) ------
@@ -237,6 +238,7 @@
     cards.forEach(function (c) {
       var ok = c.ep >= min && c.ep <= max;
       if (ok && c.key && !showSeen && isSeen(c.key)) ok = false; // serial marcat ca vazut
+      if (ok && c.key && !healthOk(c.key)) ok = false;
       if (ok && state.plats.length) ok = state.plats.indexOf(c.plat) >= 0;
       if (ok && words.length) ok = titleMatches(c.name || c.title, words);
       if (ok) { if (c.el.hasAttribute('data-rf-hide')) c.el.removeAttribute('data-rf-hide'); }
@@ -282,7 +284,7 @@
       document.body.appendChild(notice);
       tap(notice, function (e) {
         if (e.target.closest('#rf-notice-reset')) {
-          state = { sort: 'default', min: '', max: '', plats: [], q: '' };
+          state = { sort: 'default', min: '', max: '', plats: [], q: '', health: 'all' };
           save(); if (panel) syncInputs(); apply();
         }
       });
@@ -449,6 +451,19 @@
   }
   window.addEventListener('storage', function (e) { if (e.key === SEEN_KEY) { seen = null; schedule(); } });
 
+  // --- rezultatele verificarii episoadelor (salvate de "Verifica episoadele") ---
+  var epStatus = null;
+  function epLoad() { if (!epStatus) { try { epStatus = JSON.parse(localStorage.getItem('rfEpStatus.v1')) || {}; } catch (e) { epStatus = {}; } } return epStatus; }
+  function healthOf(k) { var r = epLoad()[seenKey(k)]; return r ? (r.bad && r.bad.length ? r.bad.length : 0) : -1; } // -1 = neverificat
+  function healthOk(k) {
+    if (!state.health || state.health === 'all') return true;
+    var h = healthOf(k);
+    if (state.health === 'nobroken') return h <= 0;   // ascunde doar serialele gasite cu episoade stricate
+    return h === 0;                                    // 'verified': doar verificate, cu toate episoadele functionale
+  }
+  window.addEventListener('storage', function (e) { if (e.key === 'rfEpStatus.v1') { epStatus = null; schedule(); } });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { epStatus = null; seen = null; if (catalogVisible()) renderCatalogSoon(); } });
+
   function catalogReady() { catLoad(); return cat.items.length >= 30; }
   function catalogStale() { catLoad(); return Date.now() - (cat.lastFull || 0) > 12 * 3600 * 1000; }
   function catalogMarkFull() { catLoad(); cat.lastFull = Date.now(); catDirty = true; catSave(); }
@@ -508,6 +523,7 @@
     var words = searchWords();
     var list = cat.items.filter(function (it) {
       if (!showSeen && isSeen(it.k)) return false;
+      if (!healthOk(it.k)) return false;
       var e = it.e || 0;
       if (e && (e < min || e > max)) return false;
       if (!e && state.min !== '') return false;
@@ -531,7 +547,9 @@
       (isNew ? '<span class="rf-new">NOU</span>' : '') +
       (it.e ? '<span class="rf-ep">' + it.e + ' EP</span>' : '') +
       (it.r ? '<span class="rf-rt">★ ' + it.r + '</span>' : '') +
-      (it.p ? '<span class="rf-pl">' + esc(it.p) + '</span>' : '') + '</div>' +
+      (it.p ? '<span class="rf-pl">' + esc(it.p) + '</span>' : '') +
+      (function () { var h = healthOf(it.k); return h === 0 ? '<span class="rf-ok">\u2713 toate merg</span>' : h > 0 ? '<span class="rf-bad">\u26A0 ' + h + ' stricate</span>' : ''; })() +
+      '</div>' +
       '<div class="rf-cn">' + esc(it.n || it.k) + '</div>' +
       '<button class="rf-seen" type="button">' + (sn ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut') + '</button></a>';
   }
@@ -585,6 +603,7 @@
         '.rf-cn{font-size:12px;line-height:1.3;margin:4px 2px 4px;max-height:3.9em;overflow:hidden}' +
         '.rf-seen{display:block;width:100%;margin:0 0 8px;padding:5px 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#cbd5e1;font:600 11px system-ui}' +
         '.rf-c.rf-was{opacity:.45}' +
+        '.rf-ci .rf-ok{top:24px;left:4px;background:#15803d!important}.rf-ci .rf-bad{top:24px;left:4px;background:#b91c1c!important}' +
         '#rf-cat-bar{display:flex;gap:6px;padding:0 12px}' +
         '#rf-cat-bar button{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 12px system-ui}' +
         '#rf-cat-bar button.on{background:#0f766e;border-color:#5eead4;color:#fff}' +
@@ -782,6 +801,10 @@
         return '<button class="rf-chip" data-tag="' + t + '">' + t + '</button>';
       }).join('') +
       '</div>' +
+      '<div class="rf-l">Episoade func\u021bionale</div><div class="rf-row">' +
+      '<button class="rf-chip" data-health="all">Toate</button><button class="rf-chip" data-health="nobroken">F\u0103r\u0103 stricate</button>' +
+      '<button class="rf-chip" data-health="verified">Doar verificate complete</button></div>' +
+      '<div style="font-size:12px;color:#94a3b8;margin-top:6px">Se \u0219tie doar pentru serialele verificate cu \uD83D\uDD0D Verific\u0103 episoadele (pe pagina serialului).</div>' +
       '<div class="rf-l">Platforma</div><div class="rf-row" id="rf-plats"></div>' +
       '<div class="rf-act"><button id="rf-reset" style="background:#1f2937;color:#e5e7eb">Reseteaza</button>' +
       '<button id="rf-close" style="background:#14b8a6;color:#04201d">Gata</button></div>' +
@@ -797,7 +820,8 @@
     tap(panel, function (e) {
       var t = e.target.closest('button');
       if (!t) return;
-      if (t.dataset.sort) state.sort = t.dataset.sort;
+      if (t.dataset.health) state.health = t.dataset.health;
+      else if (t.dataset.sort) state.sort = t.dataset.sort;
       else if (t.hasAttribute('data-min')) { state.min = t.dataset.min; state.max = t.dataset.max; }
       else if (t.dataset.tag) {
         var words = state.q.split(/[,\s]+/).filter(Boolean);
@@ -809,7 +833,7 @@
         var j = state.plats.indexOf(t.dataset.plat);
         if (j >= 0) state.plats.splice(j, 1); else state.plats.push(t.dataset.plat);
       }
-      else if (t.id === 'rf-reset') state = { sort: 'default', min: '', max: '', plats: [], q: '' };
+      else if (t.id === 'rf-reset') state = { sort: 'default', min: '', max: '', plats: [], q: '', health: 'all' };
       else if (t.id === 'rf-close') { panel.style.display = 'none'; return; }
       else if (t.id === 'rf-load') { loadAll(); return; }
       else if (t.id === 'rf-diag-btn') { showDiag(); return; }
@@ -867,6 +891,7 @@
     panel.querySelector('#rf-max').value = state.max;
     panel.querySelector('#rf-q').value = state.q;
     panel.querySelectorAll('[data-sort]').forEach(function (b) { b.classList.toggle('sel', b.dataset.sort === state.sort); });
+    panel.querySelectorAll('[data-health]').forEach(function (b) { b.classList.toggle('sel', b.dataset.health === (state.health || 'all')); });
     panel.querySelectorAll('[data-min]').forEach(function (b) {
       b.classList.toggle('sel', b.dataset.min === state.min && b.dataset.max === state.max);
     });

@@ -129,6 +129,15 @@
     running = false;
     setBusy(false);
     var bad = results.filter(function (r) { return !r.ok; });
+    // rezultatul unei verificari complete se tine minte (pentru eticheta si filtrul din lista)
+    var sk = pageSeenKey();
+    if (sk && !stopRequested && results.length) {
+      try {
+        var st = JSON.parse(localStorage.getItem('rfEpStatus.v1') || '{}');
+        st[sk] = { t: results.length, bad: bad.map(function (r) { return r.n; }), at: Date.now() };
+        localStorage.setItem('rfEpStatus.v1', JSON.stringify(st));
+      } catch (e) {}
+    }
     var summary = stopRequested
       ? 'Oprit. Verificate: ' + results.length + ' episoade, ' + bad.length + ' nu merg.'
       : (bad.length === 0
