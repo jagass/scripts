@@ -131,24 +131,59 @@
     var bad = results.filter(function (r) { return !r.ok; });
     // rezultatul unei verificari complete se tine minte (pentru eticheta si filtrul din lista)
     var sk = pageSeenKey();
+    var avail = eps.nums.length ? eps.nums[eps.nums.length - 1] : results.length;
+    var declared = declaredTotal();
+    var incomplete = declared && avail < declared ? declared : 0;
     if (sk && !stopRequested && results.length) {
       try {
         var st = JSON.parse(localStorage.getItem('rfEpStatus.v1') || '{}');
-        st[sk] = { t: results.length, bad: bad.map(function (r) { return r.n; }), at: Date.now() };
+        var prev = st[sk] || {};
+        st[sk] = { t: avail, total: declared || 0, bad: bad.map(function (r) { return r.n; }), at: Date.now(), inc: !!prev.inc };
         localStorage.setItem('rfEpStatus.v1', JSON.stringify(st));
       } catch (e) {}
     }
+    var incText = incomplete ? '<br>\u26A0 Incomplet: pe site sunt doar ' + avail + ' din ' + declared + ' episoade anun\u021bate.' : '';
     var summary = stopRequested
       ? 'Oprit. Verificate: ' + results.length + ' episoade, ' + bad.length + ' nu merg.'
       : (bad.length === 0
         ? '✅ Toate cele ' + results.length + ' episoade pornesc.'
         : '⚠️ ' + (results.length - bad.length) + ' din ' + results.length + ' pornesc. Nu merg: ' +
           bad.map(function (r) { return 'EP ' + r.n; }).join(', '));
-    render(results, summary);
+    render(results, summary + (stopRequested ? '' : incText));
+    if (incBtn) incBtn.textContent = incLabel();
+  }
+
+  // cate episoade anunta serialul ("56 Episode" pe pagina, sau numarul de pe card din lista salvata)
+  function declaredTotal() {
+    var best = 0, w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (w.nextNode()) {
+      var t = w.currentNode.nodeValue;
+      if (t.length > 40 || (w.currentNode.parentElement && w.currentNode.parentElement.closest('[id^=rf-]'))) continue;
+      var m = t.match(/^\s*(\d{1,4})\s*(Episodes?|Episoade|EP)\s*$/i);
+      if (m) best = Math.max(best, parseInt(m[1], 10));
+    }
+    if (best) return best;
+    try {
+      var k = pageSeenKey(), cat = JSON.parse(localStorage.getItem('rfCatalog.v1') || '{}');
+      var it = (cat.items || []).find(function (x) {
+        var p = x.k.split('/'), id = (p[1] || '').match(/^\d+/);
+        return p[0] + '/' + (id ? id[0] : p[1]) === k;
+      });
+      return it && it.e ? it.e : 0;
+    } catch (e) { return 0; }
   }
 
   // --- interfata -------------------------------------------------------------------------
-  var btn = null, panel = null, filmBtn = null, seenBtn = null;
+  var btn = null, panel = null, filmBtn = null, seenBtn = null, incBtn = null;
+
+  // --- "Marcheaza incomplet": serialul se opreste la mijlocul povestii (lipsesc episoade pe site) ---
+  function epStatusMap() { try { return JSON.parse(localStorage.getItem('rfEpStatus.v1')) || {}; } catch (e) { return {}; } }
+  function incLabel() {
+    var k = pageSeenKey(), r = k ? epStatusMap()[k] : null;
+    var auto = r && r.total && r.t < r.total;
+    if (r && r.inc) return '\u21A9 Nu e incomplet';
+    return auto ? '\u26A0 Incomplet (' + r.t + '/' + r.total + ')' : '\u26A0 Marcheaz\u0103 incomplet';
+  }
 
   // --- "Am vazut serialul": il ascunde din liste (aceeasi memorie ca lista din filter.js) ---
   var SEEN_KEY = 'rfSeen.v1';
@@ -188,6 +223,9 @@
       '#rf-seen-btn{position:fixed;left:50%;top:140px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
       'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
       'html[data-rf-cinema] #rf-seen-btn{display:none!important}' +
+      '#rf-inc-btn{position:fixed;left:50%;top:178px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
+      'border-radius:16px;border:1px solid #b45309;background:#0b1220d9;color:#fde68a;font:600 12px system-ui,sans-serif;opacity:.85}' +
+      'html[data-rf-cinema] #rf-inc-btn{display:none!important}' +
       '#rf-film-btn{position:fixed;left:50%;top:102px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
       'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
       'html[data-rf-cinema] #rf-epcheck-btn,html[data-rf-cinema] #rf-epcheck,html[data-rf-cinema] #rf-film-btn{display:none!important}';
@@ -218,6 +256,20 @@
       filmBtn.textContent = filmLabel();
     }, true);
     document.body.appendChild(filmBtn);
+
+    incBtn = document.createElement('button');
+    incBtn.id = 'rf-inc-btn';
+    incBtn.textContent = incLabel();
+    incBtn.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      var k = pageSeenKey(); if (!k) return;
+      var st = epStatusMap(), r = st[k] || { t: 0, total: 0, bad: [], at: 0 };
+      r.inc = !r.inc;
+      st[k] = r;
+      try { localStorage.setItem('rfEpStatus.v1', JSON.stringify(st)); } catch (err) {}
+      incBtn.textContent = incLabel();
+    }, true);
+    document.body.appendChild(incBtn);
 
     seenBtn = document.createElement('button');
     seenBtn.id = 'rf-seen-btn';
@@ -290,8 +342,11 @@
       filmBtn.textContent = filmLabel();
       seenBtn.style.display = pageSeenKey() ? '' : 'none';
       seenBtn.style.top = onWatch ? '140px' : '102px';
+      incBtn.style.display = pageSeenKey() ? '' : 'none';
+      incBtn.style.top = onWatch ? '178px' : '140px';
+      incBtn.textContent = incLabel();
       seenBtn.textContent = seenLabel();
-    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; seenBtn.style.display = 'none'; }
+    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; seenBtn.style.display = 'none'; incBtn.style.display = 'none'; }
 
     // pornire automata dupa ce am venit de pe pagina de prezentare
     if (onWatch && !running) {

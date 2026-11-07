@@ -530,12 +530,21 @@
   // --- rezultatele verificarii episoadelor (salvate de "Verifica episoadele") ---
   var epStatus = null;
   function epLoad() { if (!epStatus) { try { epStatus = JSON.parse(localStorage.getItem('rfEpStatus.v1')) || {}; } catch (e) { epStatus = {}; } } return epStatus; }
-  function healthOf(k) { var r = epLoad()[seenKey(k)]; return r ? (r.bad && r.bad.length ? r.bad.length : 0) : -1; } // -1 = neverificat
+  // -1 = neverificat, 0 = toate merg, >0 = cate episoade nu merg
+  function healthOf(k) { var r = epLoad()[seenKey(k)]; return r && r.at ? (r.bad && r.bad.length ? r.bad.length : 0) : -1; }
+  // serial incomplet: pe site sunt mai putine episoade decat anunta, sau l-ai marcat tu
+  function incompleteOf(k) {
+    var r = epLoad()[seenKey(k)];
+    if (!r) return null;
+    if (r.inc) return { t: r.t || 0, total: r.total || 0 };
+    if (r.total && r.t && r.t < r.total) return { t: r.t, total: r.total };
+    return null;
+  }
   function healthOk(k) {
     if (!state.health || state.health === 'all') return true;
-    var h = healthOf(k);
-    if (state.health === 'nobroken') return h <= 0;   // ascunde doar serialele gasite cu episoade stricate
-    return h === 0;                                    // 'verified': doar verificate, cu toate episoadele functionale
+    var h = healthOf(k), inc = incompleteOf(k);
+    if (state.health === 'nobroken') return h <= 0 && !inc;   // ascunde serialele cu episoade stricate sau incomplete
+    return h === 0 && !inc;                                    // 'verified': verificate, toate merg, complete
   }
   window.addEventListener('storage', function (e) { if (e.key === 'rfEpStatus.v1') { epStatus = null; schedule(); } });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { epStatus = null; seen = null; if (catalogVisible()) renderCatalogSoon(); } });
@@ -625,7 +634,12 @@
       (it.e ? '<span class="rf-ep">' + it.e + ' EP</span>' : '') +
       (it.r ? '<span class="rf-rt">★ ' + it.r + '</span>' : '') +
       (it.p ? '<span class="rf-pl">' + esc(it.p) + '</span>' : '') +
-      (function () { var h = healthOf(it.k); return h === 0 ? '<span class="rf-ok">\u2713 toate merg</span>' : h > 0 ? '<span class="rf-bad">\u26A0 ' + h + ' stricate</span>' : ''; })() +
+      (function () {
+        var inc = incompleteOf(it.k);
+        if (inc) return '<span class="rf-bad">\u26A0 incomplet' + (inc.total && inc.t ? ' ' + inc.t + '/' + inc.total : '') + '</span>';
+        var h = healthOf(it.k);
+        return h === 0 ? '<span class="rf-ok">\u2713 toate merg</span>' : h > 0 ? '<span class="rf-bad">\u26A0 ' + h + ' stricate</span>' : '';
+      })() +
       '</div>' +
       '<div class="rf-cn">' + esc(it.n || it.k) + '</div>' +
       '<button class="rf-seen" type="button">' + (sn ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut') + '</button></a>';
@@ -882,7 +896,7 @@
       }).join('') +
       '</div>' +
       '<div class="rf-l">Episoade func\u021bionale</div><div class="rf-row">' +
-      '<button class="rf-chip" data-health="all">Toate</button><button class="rf-chip" data-health="nobroken">F\u0103r\u0103 stricate</button>' +
+      '<button class="rf-chip" data-health="all">Toate</button><button class="rf-chip" data-health="nobroken">F\u0103r\u0103 stricate/incomplete</button>' +
       '<button class="rf-chip" data-health="verified">Doar verificate complete</button></div>' +
       '<div style="font-size:12px;color:#94a3b8;margin-top:6px">Se \u0219tie doar pentru serialele verificate cu \uD83D\uDD0D Verific\u0103 episoadele (pe pagina serialului).</div>' +
       '<div class="rf-l">Platforma</div><div class="rf-row" id="rf-plats"></div>' +
