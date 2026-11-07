@@ -126,16 +126,20 @@
 
   var nextIdx = 0;
   function imgOf(el) {
-    var img = el.querySelector('img');
-    if (!img) return '';
-    var src = img.currentSrc || img.src || '';
-    if (!src || src.indexOf('data:') === 0) {
-      src = img.getAttribute('data-src') || '';
-      var ss = img.getAttribute('srcset') || img.getAttribute('data-srcset') || '';
-      if (!src && ss) src = ss.split(',')[0].trim().split(' ')[0];
-      if (src) { try { src = new URL(src, location.href).href; } catch (e) {} }
+    function good(u) { return u && u.indexOf('data:') !== 0 && u.indexOf('blob:') !== 0; }
+    function abs(u) { try { return new URL(u, location.href).href; } catch (e) { return u; } }
+    var imgs = el.querySelectorAll('img');
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      var cands = [img.currentSrc, img.getAttribute('src'), img.getAttribute('data-src'), img.getAttribute('data-lazy-src'),
+        img.getAttribute('data-original'), (img.getAttribute('srcset') || img.getAttribute('data-srcset') || '').split(',')[0].trim().split(' ')[0]];
+      for (var j = 0; j < cands.length; j++) if (good(cands[j])) return abs(cands[j]);
     }
-    return src.indexOf('data:') === 0 ? '' : src;
+    var srcEl = el.querySelector('picture source[srcset], source[data-srcset]');
+    if (srcEl) { var u = (srcEl.getAttribute('srcset') || srcEl.getAttribute('data-srcset') || '').split(',')[0].trim().split(' ')[0]; if (good(u)) return abs(u); }
+    var bg = el.querySelector('[style*="background-image"]');
+    if (bg) { var m = bg.getAttribute('style').match(/url\(["']?([^"')]+)/); if (m && good(m[1])) return abs(m[1]); }
+    return '';
   }
 
   // titlul din adresa: /drama/flextv2/14912-bad-eyes-sweet-lies -> "Bad Eyes Sweet Lies"
@@ -296,6 +300,7 @@
 
   var timer = null, lastRun = 0;
   function schedule() {
+    if (loading) return; // in timpul incarcarii lucreaza doar loadAll (incremental), ca telefonul sa nu se blocheze
     clearTimeout(timer);
     // cand site-ul adauga mult continut, nu reprocesam mai des de o data la ~1s
     var wait = Math.max(500, 1000 - (Date.now() - lastRun));
@@ -324,10 +329,64 @@
   async function waitMore(before, maxMs) {
     var t0 = Date.now();
     while (Date.now() - t0 < maxMs) {
+      if (!loading) return false; // "Opreste": iesim imediat
       await sleep(150);
       if (document.querySelectorAll('a[href*="/drama/"]').length > before) { await sleep(120); return true; }
     }
     return false;
+  }
+
+  // --- citire incrementala: la fiecare pas doar serialele noi din pagina (nu toate miile) ---
+  var processedLinks = new WeakSet(), learnedDepth = -1, pendingImg = [], linkCount = 0;
+  function learnDepth() {
+    var found = cardsFromLinks();
+    for (var i = 0; i < found.length && learnedDepth < 0; i++) {
+      var f = found[i], a = f.el.matches && f.el.matches('a[href*="/drama/"]') ? f.el : f.el.querySelector('a[href*="/drama/"]');
+      if (!a) continue;
+      var d = 0, p = a;
+      while (p && p !== f.el) { p = p.parentElement; d++; }
+      if (p === f.el) learnedDepth = d;
+    }
+  }
+  function cardOf(a) {
+    var el = a;
+    for (var i = 0; i < learnedDepth && el.parentElement && el.parentElement !== document.body; i++) el = el.parentElement;
+    return el;
+  }
+  function collectNew() {
+    if (learnedDepth < 0) learnDepth();
+    var as = document.querySelectorAll('a[href*="/drama/"]'), out = [], keys = {};
+    linkCount = as.length;
+    for (var i = 0; i < as.length; i++) {
+      var a = as[i];
+      if (processedLinks.has(a)) continue;
+      processedLinks.add(a);
+      if (a.closest('[id^="rf-"]')) continue;
+      var key = cardKey(a);
+      if (!key || keys[key]) continue;
+      keys[key] = 1;
+      var el = learnedDepth >= 0 ? cardOf(a) : a;
+      var info = el.__rfInfo && el.__rfInfo.key === key ? el.__rfInfo : (el.__rfInfo = parseCard(el, nextIdx++, key, a.href));
+      if (!info.img) { info.img = imgOf(el); if (!info.img && pendingImg.length < 3000) pendingImg.push(info); }
+      out.push(info);
+    }
+    return out;
+  }
+  // pozele apar abia cand cardul trece prin ecran: le recitim pe cele care inca lipsesc
+  function fillPendingImages() {
+    if (!pendingImg.length) return;
+    catLoad();
+    var keep = [];
+    for (var i = 0; i < pendingImg.length; i++) {
+      var info = pendingImg[i];
+      var u = info.el && info.el.isConnected ? imgOf(info.el) : '';
+      if (u) {
+        info.img = u;
+        var it = catMap[info.key];
+        if (it && !it.i) { it.i = u; catDirty = true; }
+      } else if (info.el && info.el.isConnected) keep.push(info);
+    }
+    pendingImg = keep;
   }
 
   // mode: 'full' = toata lista; 'new' = doar pana dam de seriale deja cunoscute (lista din memorie)
@@ -338,32 +397,49 @@
     mode = mode || 'full';
     var lb = panel.querySelector('#rf-load');
     var same = 0, knownSteps = 0;
-    scan();
-    var gotNew = catalogMerge();
+    processedLinks = new WeakSet(); pendingImg = []; learnedDepth = -1;
+    window.scrollTo(0, 0);
+    var gotNew = catalogMerge(false, collectNew());
+    var total = linkCount;
+    loadButtons(true, 0);
     if (mode === 'new' && catalogReady() && gotNew === 0) knownSteps = 1;
-    while (loading && same < 4 && cards.length < 50000) {
+    while (loading && same < 4 && total < 100000) {
       if (mode === 'new' && knownSteps >= 2) break; // am ajuns la seriale cunoscute: restul sunt in memorie
+      // derulam cate un ecran, ca fiecare serial sa treaca prin ecran (site-ul ii pune poza abia atunci)
+      while (loading && window.scrollY + innerHeight < document.documentElement.scrollHeight - 20) {
+        window.scrollBy(0, Math.round(innerHeight * 0.9));
+        await sleep(70);
+        fillPendingImages();
+      }
+      if (!loading) break;
       var before = document.querySelectorAll('a[href*="/drama/"]').length;
       clickMore();
-      window.scrollTo(0, document.documentElement.scrollHeight);
       var grew = await waitMore(before, 2500);
-      scan();
-      var n = catalogMerge();
+      await sleep(80);
+      fillPendingImages();
+      var n = catalogMerge(false, collectNew());
+      total = linkCount;
+      // la prima incarcare, lista ta apare imediat ce are primele seriale (si cu ea butonul "Opreste")
+      if (!catalogVisible()) {
+        updateCatalogVisibility();
+        var fb = document.getElementById('rf-load-fab'); if (fb && catalogVisible()) fb.style.display = 'none';
+      }
       if (!grew) same++; else same = 0;
       if (mode === 'new') knownSteps = n === 0 ? knownSteps + 1 : 0;
-      lb.textContent = '⏹ Opreste (' + cards.length + ' incarcate)';
-      var lbl = mode === 'new' ? '🔄 Caut seriale noi… ' + cards.length : '⏳ Se încarcă toate… ' + cards.length;
-      btn.textContent = lbl;
-      loadButtons(true, cards.length);
-      catalogStatus(mode === 'new' ? '🔄 caut seriale noi…' : '⏳ actualizez lista… ' + cards.length);
+      var count = catalogReady() ? cat.items.length : total;
+      lb.textContent = '\u23F9 Opreste (' + count + ')';
+      btn.textContent = mode === 'new' ? '\uD83D\uDD04 Caut seriale noi\u2026 ' + count : '\u23F3 Se \u00EEncarc\u0103 toate\u2026 ' + count;
+      loadButtons(true, count);
+      catalogStatus(mode === 'new' ? '\uD83D\uDD04 caut seriale noi\u2026' : '\u23F3 actualizez lista\u2026 ' + count);
     }
+    fillPendingImages();
     var finished = loading; // false = oprit de tine
     loading = false;
     if (finished && mode === 'full' && same >= 4) catalogMarkFull();
     lb.textContent = '⬇️ Incarca tot';
     btn.textContent = '';
     loadButtons(false);
-    catalogMerge(true);
+    catalogMerge(true, []);
     catalogStatus(null);
     if (catalogVisible() && catNeedsRender) renderCatalog();
     apply();
@@ -470,12 +546,12 @@
   function isHomeList() { return location.pathname === '/' || /^\/explore\/?$/.test(location.pathname); }
 
   // adauga in memorie serialele din pagina; intoarce cate sunt noi
-  function catalogMerge(forceSave) {
+  function catalogMerge(forceSave, list) {
     if (!isHomeList()) return 0;
     catLoad();
     // pana la prima incarcare completa terminata, totul se adauga in ordinea site-ului, fara "NOU"
     var first = !cat.lastFull, now = Date.now(), fresh = [];
-    cards.forEach(function (c) {
+    (list || cards).forEach(function (c) {
       if (!c.key || !c.href) return;
       var it = catMap[c.key];
       if (!it) {
@@ -485,7 +561,8 @@
       } else {
         if (c.ep) it.e = c.ep;
         if (c.rating) it.r = c.rating;
-        if (c.img && !it.i) it.i = c.img;
+        if (!c.img && c.el && c.el.isConnected) c.img = imgOf(c.el);
+        if (c.img && !it.i) { it.i = c.img; catDirty = true; }
         if (c.name && c.name !== it.n) { it.n = c.name; catDirty = true; }
       }
     });
@@ -543,7 +620,7 @@
     var isNew = it.f && now - it.f < NEW_DAYS * 86400000;
     var sn = isSeen(it.k);
     return '<a class="rf-c' + (sn ? ' rf-was' : '') + '" href="' + esc(it.u) + '" data-k="' + esc(it.k) + '">' +
-      '<div class="rf-ci">' + (it.i ? '<img loading="lazy" src="' + esc(it.i) + '" alt="">' : '') +
+      '<div class="rf-ci">' + (it.i ? '<img loading="lazy" src="' + esc(it.i) + '" alt="">' : '<div class="rf-noimg">' + esc(it.n || '') + '</div>') +
       (isNew ? '<span class="rf-new">NOU</span>' : '') +
       (it.e ? '<span class="rf-ep">' + it.e + ' EP</span>' : '') +
       (it.r ? '<span class="rf-rt">★ ' + it.r + '</span>' : '') +
@@ -612,7 +689,8 @@
         'background:#0b1220ee;color:#e6fffb;font:600 14px system-ui;display:none}' +
         'html[data-rf-cinema] #rf-cat,html[data-rf-cinema] #rf-cat-open{display:none!important}' +
         // in spatele listei, pagina site-ului nu-si mai afiseaza (si nu mai descarca) pozele
-        'html[data-rf-catalog] a[href*="/drama/"] img,html[data-rf-catalog] a[href*="/watch/"] img{display:none!important}' +
+        '.rf-noimg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px;' +
+        'font:600 12px/1.3 system-ui;color:#e5e7eb;background:linear-gradient(160deg,#1e3a5f,#4c1d95)}' +
         '';
       document.head.appendChild(css);
       catEl = document.createElement('div');
