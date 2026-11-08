@@ -166,8 +166,8 @@
     try {
       var k = pageSeenKey(), cat = JSON.parse(localStorage.getItem('rfCatalog.v1') || '{}');
       var it = (cat.items || []).find(function (x) {
-        var p = x.k.split('/'), id = (p[1] || '').match(/^\d+/);
-        return p[0] + '/' + (id ? id[0] : p[1]) === k;
+        var p = x.k.split('/'), seg = p[1] || '', tok = seg.split('-')[0];
+        return p[0] + '/' + (/\d/.test(tok) ? tok : seg) === k;
       });
       return it && it.e ? it.e : 0;
     } catch (e) { return 0; }
@@ -195,8 +195,8 @@
   function pageSeenKey() {
     var m = location.pathname.match(/^\/(?:drama|watch)\/([^\/?#]+)\/([^\/?#]+)/);
     if (!m) return null;
-    var id = m[2].match(/^\d+/);
-    return m[1] + '/' + (id ? id[0] : m[2]);
+    var tok = m[2].split('-')[0];   // tot id-ul (cifre sau litere+cifre), ca in lista
+    return m[1] + '/' + (/\d/.test(tok) ? tok : m[2]);
   }
   function seenMap() { try { return JSON.parse(localStorage.getItem(SEEN_KEY)) || {}; } catch (e) { return {}; } }
   function seenLabel() {

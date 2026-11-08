@@ -493,6 +493,7 @@
       catMap[it.k] = it;
     });
     if (catDirty) setTimeout(catSave, 0);
+    setTimeout(pruneMarks, 0);
   }
   function catSave() {
     catDirty = false;
@@ -509,10 +510,26 @@
   // --- seriale vazute (ascunse din liste, la cererea ta) ---
   var SEEN_KEY = 'rfSeen.v1';
   var seen = null, showSeen = false;
-  function seenKey(k) {           // "platforma/id" (fara titlu), la fel pentru /drama/ si /watch/
+  // "platforma/id" (fara titlu), la fel pentru /drama/ si /watch/. Id-ul e TOT primul segment al adresei
+  // (ex. "15003049" sau "65e1a2b3c4..."): inainte se pastrau doar cifrele de la inceput, iar sute de seriale
+  // cu id-uri litere+cifre (ex. ReelShort2) ajungeau la aceeasi cheie.
+  function seenKey(k) {
     var parts = String(k || '').split('/');
-    var id = (parts[1] || '').match(/^\d+/);
-    return parts[0] + '/' + (id ? id[0] : parts[1]);
+    var seg = parts[1] || '', tok = seg.split('-')[0];
+    return parts[0] + '/' + (/\d/.test(tok) ? tok : seg);
+  }
+  // curata selectiile (Vazut / De vazut) care nu mai corespund niciunui serial din lista ta
+  function pruneMarks() {
+    if (!cat || cat.items.length < 500) return;
+    var valid = {};
+    cat.items.forEach(function (it) { valid[seenKey(it.k)] = 1; });
+    [['rfSeen.v1', function () { seen = null; }], ['rfWatch.v1', function () { watch = null; }]].forEach(function (x) {
+      try {
+        var m = JSON.parse(localStorage.getItem(x[0]) || '{}'), changed = false;
+        Object.keys(m).forEach(function (key) { if (!valid[key]) { delete m[key]; changed = true; } });
+        if (changed) { localStorage.setItem(x[0], JSON.stringify(m)); x[1](); if (catEl) { updateSeenButton(); if (catalogVisible()) renderCatalog(); } }
+      } catch (e) {}
+    });
   }
   function seenLoad() { if (!seen) { try { seen = JSON.parse(localStorage.getItem(SEEN_KEY)) || {}; } catch (e) { seen = {}; } } return seen; }
   function seenSave() { try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch (e) {} }
