@@ -547,12 +547,36 @@ public class MainActivity extends Activity {
             return;
         }
         if (data.startsWith("backup:save:")) {
-            pendingBackup = data.substring("backup:save:".length());
+            String json = data.substring("backup:save:".length());
+            String name = "ReelFren-backup-"
+                    + new java.text.SimpleDateFormat("yyyy-MM-dd_HHmm", java.util.Locale.US).format(new java.util.Date()) + ".json";
+            // Android 10+: direct in Descarcari (fara fereastra de alegere, care pe unele telefoane opreste aplicatia)
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                try {
+                    android.content.ContentValues cv = new android.content.ContentValues();
+                    cv.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                    cv.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json");
+                    cv.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+                    Uri out = getContentResolver().insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                    if (out == null) throw new java.io.IOException("insert");
+                    try (java.io.OutputStream os = getContentResolver().openOutputStream(out)) {
+                        os.write(json.getBytes(StandardCharsets.UTF_8));
+                    }
+                    Toast.makeText(this, "Backup salvat \u00een Desc\u0103rc\u0103ri: " + name
+                            + " (" + Math.max(1, json.length() / 1024) + " KB)", Toast.LENGTH_LONG).show();
+                    return;
+                } catch (Exception e) {
+                    // continuam cu fereastra de alegere
+                }
+            }
+            // datele merg intr-un fisier temporar: raman chiar daca aplicatia e repornita cat alegi locul
+            try (java.io.FileOutputStream fo = new java.io.FileOutputStream(new java.io.File(getCacheDir(), "pending-backup.json"))) {
+                fo.write(json.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) { pendingBackup = json; }
             android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
             i.setType("application/json");
-            i.putExtra(android.content.Intent.EXTRA_TITLE, "ReelFren-backup-"
-                    + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()) + ".json");
+            i.putExtra(android.content.Intent.EXTRA_TITLE, name);
             try { startActivityForResult(i, REQ_SAVE_BACKUP); }
             catch (Exception e) { Toast.makeText(this, "Nu pot deschide salvarea de fi\u0219iere", Toast.LENGTH_LONG).show(); }
             return;
@@ -982,14 +1006,28 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
         if (requestCode == REQ_SAVE_BACKUP) {
-            if (uri != null && pendingBackup != null) {
-                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
-                    out.write(pendingBackup.getBytes(StandardCharsets.UTF_8));
-                    Toast.makeText(this, "Backup salvat", Toast.LENGTH_SHORT).show();
+            java.io.File tmp = new java.io.File(getCacheDir(), "pending-backup.json");
+            if (uri != null) {
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
+                    byte[] bytes;
+                    if (tmp.exists()) {
+                        bytes = new byte[(int) tmp.length()];
+                        try (java.io.FileInputStream fi = new java.io.FileInputStream(tmp)) {
+                            int off = 0, n;
+                            while (off < bytes.length && (n = fi.read(bytes, off, bytes.length - off)) > 0) off += n;
+                        }
+                    } else if (pendingBackup != null) {
+                        bytes = pendingBackup.getBytes(StandardCharsets.UTF_8);
+                    } else {
+                        throw new java.io.IOException("no data");
+                    }
+                    out.write(bytes);
+                    Toast.makeText(this, "Backup salvat (" + Math.max(1, bytes.length / 1024) + " KB)", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
-                    Toast.makeText(this, "Backup-ul nu s-a putut salva", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Backup-ul nu s-a putut salva. \u00cencearc\u0103 din nou.", Toast.LENGTH_LONG).show();
                 }
             }
+            tmp.delete();
             pendingBackup = null;
         } else if (requestCode == REQ_OPEN_FILE) {
             if (fileCallback != null) fileCallback.onReceiveValue(uri != null ? new Uri[]{uri} : null);

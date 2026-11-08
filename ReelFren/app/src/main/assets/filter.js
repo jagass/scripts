@@ -834,7 +834,8 @@
         var data = backupData();
         if (window.RFBridge && /Android/i.test(navigator.userAgent)) {
           window.RFBridge.postMessage('backup:save:' + data); // aplicatia te intreaba unde sa salveze fisierul
-          msg.textContent = 'Alege unde s\u0103 salvezi fi\u0219ierul\u2026';
+          msg.textContent = 'Se salveaz\u0103 \u00EEn Desc\u0103rc\u0103ri (' + Math.round(data.length / 1024) + ' KB)\u2026 ' +
+            'La \u00EEnc\u0103rcare alege fi\u0219ierul ReelFren-backup-\u2026json din Desc\u0103rc\u0103ri.';
         } else {
           var a = document.createElement('a');
           a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
