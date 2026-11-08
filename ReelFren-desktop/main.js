@@ -98,6 +98,16 @@ function saveBounds(win) {
 let win = null;
 const challengeByWc = new Map();
 
+// Blocarea reclamelor se poate opri din pagina (unele episoade pornesc doar dupa reclama site-ului).
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
+let adblockOn = true;
+function loadSettings() {
+  try { adblockOn = JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).adblock !== false; } catch (e) { adblockOn = true; }
+}
+function saveSettings() {
+  try { fs.writeFileSync(settingsFile(), JSON.stringify({ adblock: adblockOn })); } catch (e) { /* nu e grav */ }
+}
+
 // Identificare exact ca un Chrome obisnuit pe Windows (fara "Electron" / numele aplicatiei,
 // cu versiunea scurtata cum o trimite Chrome). Se aplica peste tot, inclusiv verificarii Cloudflare.
 const CHROME_MAJOR = String(process.versions.chrome || '130').split('.')[0];
@@ -197,7 +207,8 @@ if (!gotLock) {
     // ca restul (ex. sutele de bucati ale unui episod) sa nu treaca prin aplicatie si sa nu incetineasca.
     const adUrls = [];
     AD_HOSTS.forEach((h) => { adUrls.push('*://' + h + '/*', '*://*.' + h + '/*'); });
-    ses.webRequest.onBeforeRequest({ urls: adUrls }, (details, cb) => cb({ cancel: true }));
+    loadSettings();
+    ses.webRequest.onBeforeRequest({ urls: adUrls }, (details, cb) => cb({ cancel: adblockOn }));
 
     // 1) Pagina de verificare Cloudflare se recunoaste dupa raspunsul serverului ("cf-mitigated: challenge").
     //    Pe ea nu punem niciun script (altfel Cloudflare crede ca e un robot si cere verificarea la nesfarsit).
@@ -231,7 +242,7 @@ if (!gotLock) {
     ses.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
 
     ipcMain.on('rf:scripts', (e) => {
-      e.returnValue = challengeByWc.get(e.sender.id) ? '' : PAGE_SCRIPT;
+      e.returnValue = challengeByWc.get(e.sender.id) ? '' : (adblockOn ? '' : 'window.__rfAdOff=true;\n') + PAGE_SCRIPT;
     });
     ipcMain.on('rf:fs', (e, on) => {
       const w = BrowserWindow.fromWebContents(e.sender);
@@ -239,6 +250,11 @@ if (!gotLock) {
     });
     // un serial atins in lista: se deschide intr-o fereastra noua, lista ramane incarcata
     ipcMain.on('rf:open', (e, url) => { if (isAllowed(url)) createWindow(url, true); });
+    ipcMain.on('rf:adblock', (e) => {
+      adblockOn = !adblockOn;
+      saveSettings();
+      e.sender.reload();
+    });
     ipcMain.on('rf:click', (e, url) => {
       try { lastClick = { host: new URL(url).hostname.toLowerCase(), at: Date.now() }; } catch (err) { /* ignore */ }
     });

@@ -48,6 +48,7 @@
   }
 
   function sweep() {
+    if (window.__rfAdOff) return; // blocarea reclamelor e oprita (din butonul aplicatiei)
     var b = document.body;
     if (!b) return;
     var kids = b.children;
@@ -66,7 +67,7 @@
   var STRONG = /(vpn\s*toggle|vpn\s*recommended|install\s*vpn|use\s*(a\s*)?vpn|click to download|allow notifications|press allow|tap allow|click allow|virus (detected|found)|your (phone|device|android) (is|has|may)|security (alert|warning))/i;
   var hiddenAds = [];
   function deepSweep() {
-    if (!document.body) return;
+    if (!document.body || window.__rfAdOff) return;
     // cat timp e afisata lista din memorie, pagina site-ului (cu mii de carduri) e ascunsa: nu o parcurgem
     if (document.documentElement.hasAttribute('data-rf-catalog')) return;
     var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), seen = new Set();

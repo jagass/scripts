@@ -87,6 +87,11 @@ public class MainActivity extends Activity {
     private String adblockJs = "";
     private String epcheckJs = "";
 
+    /** Blocarea reclamelor (unele episoade pornesc doar dupa reclama site-ului): se poate opri din pagina. */
+    private boolean adblockOn = true;
+    private final java.util.Map<WebView, androidx.webkit.ScriptHandler> adOffFlags = new java.util.HashMap<>();
+    private static final String AD_OFF_JS = "window.__rfAdOff=true;";
+
     /** Retele de reclame cunoscute: cererile spre ele primesc un raspuns gol. */
     private static final String[] AD_HOSTS = {
             "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
@@ -183,6 +188,7 @@ public class MainActivity extends Activity {
 
         setContentView(root);
 
+        adblockOn = getSharedPreferences("reelfren", MODE_PRIVATE).getBoolean("adblock", true);
         playerJs = readAsset("player.js");
         filterJs = readAsset("filter.js");
         adblockJs = readAsset("adblock.js");
@@ -233,6 +239,7 @@ public class MainActivity extends Activity {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(w, playerJs, Collections.singleton("*"));
             WebViewCompat.addDocumentStartJavaScript(w, adblockJs, Collections.singleton("*"));
+            if (!adblockOn) adOffFlags.put(w, WebViewCompat.addDocumentStartJavaScript(w, AD_OFF_JS, Collections.singleton("*")));
             // Butonul "Filtru" doar pe paginile site-ului (nu si in iframe-uri straine)
             java.util.Set<String> site = new java.util.HashSet<>();
             for (String d : ALLOWED_DOMAINS) {
@@ -248,6 +255,24 @@ public class MainActivity extends Activity {
         w.setWebChromeClient(chromeClient);
 
         return w;
+    }
+
+    /** Porneste/opreste blocarea reclamelor (tinut minte) si reincarca pagina vizibila. */
+    private void toggleAdblock() {
+        adblockOn = !adblockOn;
+        getSharedPreferences("reelfren", MODE_PRIVATE).edit().putBoolean("adblock", adblockOn).apply();
+        for (WebView w : tabs) {
+            if (adblockOn) {
+                androidx.webkit.ScriptHandler h = adOffFlags.remove(w);
+                if (h != null) h.remove();
+                w.evaluateJavascript("window.__rfAdOff=false;", null);
+            } else if (!adOffFlags.containsKey(w) && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                adOffFlags.put(w, WebViewCompat.addDocumentStartJavaScript(w, AD_OFF_JS, Collections.singleton("*")));
+            }
+        }
+        Toast.makeText(this, adblockOn ? "Blocare reclame pornit\u0103"
+                : "Blocare reclame oprit\u0103. La ferestrele de reclam\u0103 ap\u0103s\u0103 Cancel / Close.", Toast.LENGTH_LONG).show();
+        webView.reload();
     }
 
     /** Deschide un serial intr-o pagina noua, peste lista (care ramane incarcata). */
@@ -268,6 +293,7 @@ public class MainActivity extends Activity {
         if (tabs.size() <= 1) return false;
         if (cinema) exitCinema();
         WebView top = tabs.remove(tabs.size() - 1);
+        adOffFlags.remove(top);
         root.removeView(top);
         framesByView.remove(top);
         top.destroy();
@@ -367,7 +393,7 @@ public class MainActivity extends Activity {
 
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-            if (isAdHost(request.getUrl().getHost())) {
+            if (adblockOn && isAdHost(request.getUrl().getHost())) {
                 return new WebResourceResponse("text/plain", "utf-8",
                         new java.io.ByteArrayInputStream(new byte[0]));
             }
@@ -382,6 +408,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageFinished(WebView view, String url) {
             if (!startScriptInjected) view.evaluateJavascript(playerJs, null);
+            if (!adblockOn) view.evaluateJavascript(AD_OFF_JS, null);
             view.evaluateJavascript(adblockJs, null);
             // scriptul se protejeaza singur de dubla rulare, deci e sigur sa-l rulam si aici
             view.evaluateJavascript(filterJs, null);
@@ -499,6 +526,10 @@ public class MainActivity extends Activity {
             List<JavaScriptReplyProxy> fr = framesOf(view);
             if (!fr.contains(proxy)) fr.add(proxy);
             if (cinema && view == webView) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
+            return;
+        }
+        if (data.equals("adblock:toggle")) {
+            toggleAdblock();
             return;
         }
         if (data.startsWith("open:")) {

@@ -13,4 +13,5 @@ window.addEventListener('message', (e) => {
   else if (m === 'fs:exit') ipcRenderer.send('rf:fs', false);
   else if (m.indexOf('click:') === 0) ipcRenderer.send('rf:click', m.slice(6));
   else if (m.indexOf('open:') === 0) ipcRenderer.send('rf:open', m.slice(5));
+  else if (m === 'adblock:toggle') ipcRenderer.send('rf:adblock');
 });

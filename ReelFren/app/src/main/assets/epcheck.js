@@ -412,6 +412,39 @@
     }
   }, true);
 
+  // --- buton "Blocare reclame": unele episoade pornesc doar dupa ce site-ul isi arata reclama ---
+  var adBtn = null;
+  function adLabel(err) {
+    if (window.__rfAdOff) return '\uD83D\uDEE1 Blocare reclame: Oprit\u0103 (atinge pentru a o porni)';
+    return err ? '\u25B6 Video nu porne\u0219te? Opre\u0219te blocarea reclamelor' : '\uD83D\uDEE1 Blocare reclame: Pornit\u0103';
+  }
+  function adRefresh() {
+    var onSeries = /^\/(drama|watch)\//.test(location.pathname);
+    if (!onSeries || !window.RFBridge) { if (adBtn) adBtn.style.display = 'none'; return; }
+    if (!adBtn) {
+      var css = document.createElement('style');
+      css.textContent = '#rf-ad-btn{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:2147483645;padding:8px 14px;' +
+        'border-radius:18px;border:1px solid #64748b;background:#0b1220e6;color:#e5e7eb;font:600 12px system-ui,sans-serif;max-width:92vw}' +
+        '#rf-ad-btn.hl{background:#b45309;border-color:#fbbf24;color:#fff;font-size:14px;padding:10px 16px}' +
+        'html[data-rf-cinema] #rf-ad-btn{display:none!important}';
+      document.head.appendChild(css);
+      adBtn = document.createElement('button');
+      adBtn.id = 'rf-ad-btn';
+      adBtn.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        adBtn.textContent = '\u23F3 Re\u00EEncarc pagina\u2026';
+        window.RFBridge.postMessage('adblock:toggle'); // aplicatia schimba setarea si reincarca pagina
+      }, true);
+      document.body.appendChild(adBtn);
+    }
+    var err = !window.__rfAdOff && !!siteError();
+    adBtn.style.display = '';
+    adBtn.classList.toggle('hl', err);
+    var l = adLabel(err);
+    if (adBtn.textContent !== l && adBtn.textContent.indexOf('\u23F3') !== 0) adBtn.textContent = l;
+  }
+  setInterval(adRefresh, 1500);
+
   window.__rfCheckEpisodes = checkAll; // pentru teste
 
   function start() { refresh(); setInterval(refresh, 1500); }

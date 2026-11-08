@@ -112,6 +112,8 @@
           // nu atingem slide-urile Swiper-ului si nici alte video-uri (episoadele vecine)
           if (marked.indexOf(k) >= 0) continue;
           if (k.classList.contains('swiper-slide') || k.tagName === 'VIDEO' || k.querySelector('video')) continue;
+          // blocarea reclamelor oprita: lasam vizibile ferestrele puse peste pagina (site-ul asteapta raspunsul la ele)
+          if (window.__rfAdOff && k.parentElement === document.body && getComputedStyle(k).position === 'fixed') continue;
         }
         k.__rfHid = true;
         hiddenByUs.push([k, k.style.getPropertyValue('display'), k.style.getPropertyPriority('display')]);
