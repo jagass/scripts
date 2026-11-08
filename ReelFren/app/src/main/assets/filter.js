@@ -518,14 +518,32 @@
   function seenSave() { try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch (e) {} }
   function isSeen(k) { return !!seenLoad()[seenKey(k)]; }
   function seenCount() { return Object.keys(seenLoad()).length; }
+  // --- lista "De vazut" (serialele puse deoparte pentru mai tarziu) ---
+  var WATCH_KEY = 'rfWatch.v1', watch = null, showWatch = false;
+  function watchLoad() { if (!watch) { try { watch = JSON.parse(localStorage.getItem(WATCH_KEY)) || {}; } catch (e) { watch = {}; } } return watch; }
+  function watchSave() { try { localStorage.setItem(WATCH_KEY, JSON.stringify(watch)); } catch (e) {} }
+  function inWatch(k) { return !!watchLoad()[seenKey(k)]; }
+  function watchCount() { return Object.keys(watchLoad()).length; }
+  function toggleWatch(k) {
+    watchLoad();
+    var sk = seenKey(k);
+    if (watch[sk]) delete watch[sk]; else watch[sk] = Date.now();
+    watchSave();
+    return !!watch[sk];
+  }
+
   function toggleSeen(k) {
     seenLoad();
     var sk = seenKey(k);
     if (seen[sk]) delete seen[sk]; else seen[sk] = Date.now();
     seenSave();
+    if (seen[sk] && watchLoad()[sk]) { delete watch[sk]; watchSave(); } // vazut -> iese din "De vazut"
     return !!seen[sk];
   }
-  window.addEventListener('storage', function (e) { if (e.key === SEEN_KEY) { seen = null; schedule(); } });
+  window.addEventListener('storage', function (e) {
+    if (e.key === SEEN_KEY) { seen = null; schedule(); }
+    if (e.key === WATCH_KEY) { watch = null; schedule(); }
+  });
 
   // --- rezultatele verificarii episoadelor (salvate de "Verifica episoadele") ---
   var epStatus = null;
@@ -598,7 +616,9 @@
   var catNeedsRender = false, lastCatSig = '';
   function updateCatalogCount() {
     if (!catEl) return;
-    catEl.querySelector('#rf-cat-count').textContent = showSeen
+    catEl.querySelector('#rf-cat-count').textContent = showWatch
+      ? catList.length + ' de v\u0103zut'
+      : showSeen
       ? catList.length + ' v\u0103zute'
       : (catList.length === cat.items.length ? cat.items.length : catList.length + ' din ' + cat.items.length) + ' seriale';
   }
@@ -609,8 +629,9 @@
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
     var words = searchWords();
     var list = cat.items.filter(function (it) {
-      // lista mare: fara serialele vazute; "Vazute": DOAR serialele vazute
-      if (showSeen !== isSeen(it.k)) return false;
+      // lista mare: fara serialele vazute; "Vazute": DOAR cele vazute; "De vazut": DOAR cele puse deoparte
+      if (showWatch) { if (!inWatch(it.k) || isSeen(it.k)) return false; }
+      else if (showSeen !== isSeen(it.k)) return false;
       if (!healthOk(it.k)) return false;
       var e = it.e || 0;
       if (e && (e < min || e > max)) return false;
@@ -644,7 +665,8 @@
       })() +
       '</div>' +
       '<div class="rf-cn">' + esc(it.n || it.k) + '</div>' +
-      '<button class="rf-seen" type="button">' + (sn ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut') + '</button></a>';
+      '<div class="rf-btns"><button class="rf-seen" type="button">' + (sn ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut') + '</button>' +
+      '<button class="rf-watch' + (inWatch(it.k) ? ' on' : '') + '" type="button">' + (inWatch(it.k) ? '\uD83D\uDCCC \u00CEn list\u0103' : '\uD83D\uDCCC De v\u0103zut') + '</button></div></a>';
   }
 
   function renderMore() {
@@ -660,7 +682,7 @@
     if (!catEl) return;
     catNeedsRender = false;
     lastCatSig = JSON.stringify(state);
-    catList = isActive() || seenCount() || showSeen ? catalogFiltered() : cat.items;
+    catList = isActive() || seenCount() || showSeen || showWatch ? catalogFiltered() : cat.items;
     catShown = 0;
     catGrid.innerHTML = '';
     renderMore();
@@ -697,7 +719,11 @@
         '.rf-seen{display:block;width:100%;margin:0 0 8px;padding:5px 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#cbd5e1;font:600 11px system-ui}' +
         '.rf-c.rf-was{opacity:.45}' +
         '.rf-ci .rf-ok{top:24px;left:4px;background:#15803d!important}.rf-ci .rf-bad{top:24px;left:4px;background:#b91c1c!important}' +
-        '#rf-cat-bar{display:flex;gap:6px;padding:0 12px}' +
+        '#rf-cat-bar{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px}' +
+        '#rf-cat-bar button{flex:1 1 30%!important}' +
+        '.rf-btns{display:flex;gap:4px;margin:0 0 8px}.rf-btns .rf-seen{margin:0;flex:1}' +
+        '.rf-watch{flex:1;padding:5px 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#cbd5e1;font:600 11px system-ui}' +
+        '.rf-watch.on{background:#1e3a8a;border-color:#60a5fa;color:#fff}' +
         '#rf-cat-bar button{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 12px system-ui}' +
         '#rf-cat-bar button.on{background:#0f766e;border-color:#5eead4;color:#fff}' +
 
@@ -714,7 +740,7 @@
       catEl.innerHTML = '<div id="rf-cat-top"><div><b>📚 Toate serialele</b><br><span id="rf-cat-count"></span></div>' +
         '<span id="rf-cat-status"></span><button id="rf-cat-site">🌐 Site</button></div>' +
         '<div id="rf-cat-bar"><button id="rf-cat-new">\uD83D\uDD04 Caut\u0103 noi</button><button id="rf-cat-all">\u2B07\uFE0F \u00CEncarc\u0103 tot</button>' +
-        '<button id="rf-cat-seen"></button><button id="rf-cat-backup">\uD83D\uDCBE Backup</button></div>' +
+        '<button id="rf-cat-seen"></button><button id="rf-cat-watch"></button><button id="rf-cat-backup">\uD83D\uDCBE Backup</button></div>' +
         '<input id="rf-cat-q" type="search" placeholder="Caută după titlu…">' +
         '<div id="rf-cat-scroll"><div id="rf-cat-grid"></div></div>';
       document.body.appendChild(catEl);
@@ -729,8 +755,12 @@
       // incarcare doar la cererea ta: serialele noi / toata lista; acelasi buton opreste
       catEl.querySelector('#rf-cat-new').addEventListener('click', function () { loadAll(loading ? null : 'new'); });
       catEl.querySelector('#rf-cat-all').addEventListener('click', function () { loadAll(loading ? null : 'full'); });
+      catEl.querySelector('#rf-cat-watch').addEventListener('click', function () {
+        showWatch = !showWatch; showSeen = false; renderCatalog(); updateSeenButton(); updateCatalogCount();
+        catEl.querySelector('#rf-cat-scroll').scrollTop = 0;
+      });
       catEl.querySelector('#rf-cat-seen').addEventListener('click', function () {
-        showSeen = !showSeen; renderCatalog(); updateSeenButton(); updateCatalogCount();
+        showSeen = !showSeen; showWatch = false; renderCatalog(); updateSeenButton(); updateCatalogCount();
         catEl.querySelector('#rf-cat-scroll').scrollTop = 0;
       });
       catEl.querySelector('#rf-cat-backup').addEventListener('click', showBackup);
@@ -740,7 +770,7 @@
         e.preventDefault();
         if (e.target.closest('.rf-seen')) {
           var nowSeen = toggleSeen(a.dataset.k);
-          if (nowSeen !== showSeen) {
+          if (showWatch ? nowSeen : nowSeen !== showSeen) {
             // nu mai apartine listei afisate (vazut in lista mare / nevazut in lista de vazute)
             // il scoatem din lista fara sa redesenam tot (derularea ramane pe loc)
             if (catList === cat.items) catList = catalogFiltered();
@@ -750,6 +780,20 @@
           } else {
             a.classList.toggle('rf-was', nowSeen);
             a.querySelector('.rf-seen').textContent = nowSeen ? '\u21A9 Nev\u0103zut' : '\uD83D\uDC41 V\u0103zut';
+          }
+          updateSeenButton(); updateCatalogCount();
+          return;
+        }
+        if (e.target.closest('.rf-watch')) {
+          var nowIn = toggleWatch(a.dataset.k);
+          if (showWatch && !nowIn) {
+            var ix = catList.indexOf(catMap[a.dataset.k]); if (ix >= 0) catList.splice(ix, 1);
+            catShown = Math.max(0, catShown - 1);
+            a.remove();
+          } else {
+            var wb = a.querySelector('.rf-watch');
+            wb.classList.toggle('on', nowIn);
+            wb.textContent = nowIn ? '\uD83D\uDCCC \u00CEn list\u0103' : '\uD83D\uDCCC De v\u0103zut';
           }
           updateSeenButton(); updateCatalogCount();
           return;
@@ -803,7 +847,7 @@
   setInterval(function () { if (catalogVisible()) fitAboveSiteMenu(); }, 4000);
 
   // --- Backup: lista, serialele vazute, verificarile si setarile intr-un fisier (si inapoi) ---
-  var BACKUP_KEYS = ['rfCatalog.v1', 'rfSeen.v1', 'rfEpStatus.v1', 'rfAutoNext'];
+  var BACKUP_KEYS = ['rfCatalog.v1', 'rfSeen.v1', 'rfWatch.v1', 'rfEpStatus.v1', 'rfAutoNext'];
   function backupData() {
     saveNow();
     var d = { app: 'ReelFren', v: 1, at: new Date().toISOString(), data: {} };
@@ -814,7 +858,7 @@
     var d = JSON.parse(text);
     if (!d || d.app !== 'ReelFren' || !d.data) throw new Error('nu e un backup ReelFren');
     BACKUP_KEYS.forEach(function (k) { if (typeof d.data[k] === 'string') localStorage.setItem(k, d.data[k]); });
-    cat = null; catMap = null; seen = null; epStatus = null;
+    cat = null; catMap = null; seen = null; watch = null; epStatus = null;
     catLoad();
     return cat.items.length;
   }
@@ -878,8 +922,11 @@
     var n = seenCount();
     b.textContent = showSeen ? '\u2190 Toate serialele' : '\uD83D\uDC41 V\u0103zute (' + n + ')';
     b.classList.toggle('on', showSeen);
+    var w = catEl.querySelector('#rf-cat-watch');
+    w.textContent = showWatch ? '\u2190 Toate serialele' : '\uD83D\uDCCC De v\u0103zut (' + watchCount() + ')';
+    w.classList.toggle('on', showWatch);
     var title = catEl.querySelector('#rf-cat-top b');
-    if (title) title.textContent = showSeen ? '\uD83D\uDC41 Seriale v\u0103zute' : '\uD83D\uDCDA Toate serialele';
+    if (title) title.textContent = showSeen ? '\uD83D\uDC41 Seriale v\u0103zute' : showWatch ? '\uD83D\uDCCC De v\u0103zut' : '\uD83D\uDCDA Toate serialele';
   }
 
   // butoanele de incarcare: pe lista ta (sus) si pe paginile site-ului (langa Filtru)

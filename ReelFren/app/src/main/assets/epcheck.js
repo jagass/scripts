@@ -174,7 +174,12 @@
   }
 
   // --- interfata -------------------------------------------------------------------------
-  var btn = null, panel = null, filmBtn = null, seenBtn = null, incBtn = null;
+  var btn = null, panel = null, filmBtn = null, seenBtn = null, incBtn = null, watchBtn = null;
+  function watchMap() { try { return JSON.parse(localStorage.getItem('rfWatch.v1')) || {}; } catch (e) { return {}; } }
+  function watchLabel() {
+    var k = pageSeenKey();
+    return k && watchMap()[k] ? '\uD83D\uDCCC \u00CEn lista De v\u0103zut (scoate)' : '\uD83D\uDCCC Adaug\u0103 la De v\u0103zut';
+  }
 
   // --- "Marcheaza incomplet": serialul se opreste la mijlocul povestii (lipsesc episoade pe site) ---
   function epStatusMap() { try { return JSON.parse(localStorage.getItem('rfEpStatus.v1')) || {}; } catch (e) { return {}; } }
@@ -263,6 +268,7 @@
       '#rf-epcheck .rf-bad{margin-top:10px;font-size:13px;color:#fca5a5}' +
       '#rf-epcheck .rf-act{display:flex;gap:8px;margin-top:14px}' +
       '#rf-epcheck .rf-act button{flex:1;padding:11px;border-radius:12px;border:0;font:600 14px system-ui}' +
+      '#rf-watch-btn{border-radius:16px;border:1px solid #3b82f6;background:#0b1220d9;color:#bfdbfe;font:600 12px system-ui,sans-serif;padding:6px 12px}' +
       '#rf-seen-btn{position:fixed;left:50%;top:140px;transform:translateX(-50%);z-index:2147483645;padding:6px 12px;' +
       'border-radius:16px;border:1px solid #64748b;background:#0b1220d9;color:#e5e7eb;font:600 12px system-ui,sans-serif;opacity:.85}' +
       'html[data-rf-cinema] #rf-seen-btn{display:none!important}' +
@@ -314,6 +320,19 @@
     }, true);
     toolsList.appendChild(incBtn);
 
+    watchBtn = document.createElement('button');
+    watchBtn.id = 'rf-watch-btn';
+    watchBtn.textContent = watchLabel();
+    watchBtn.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      var k = pageSeenKey(); if (!k) return;
+      var m = watchMap();
+      if (m[k]) delete m[k]; else m[k] = Date.now();
+      try { localStorage.setItem('rfWatch.v1', JSON.stringify(m)); } catch (err) {}
+      watchBtn.textContent = watchLabel();
+    }, true);
+    toolsList.appendChild(watchBtn);
+
     seenBtn = document.createElement('button');
     seenBtn.id = 'rf-seen-btn';
     seenBtn.textContent = seenLabel();
@@ -323,7 +342,9 @@
       var m = seenMap();
       if (m[k]) delete m[k]; else m[k] = Date.now();
       try { localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (err) {}
+      if (m[k]) { var w = watchMap(); if (w[k]) { delete w[k]; try { localStorage.setItem('rfWatch.v1', JSON.stringify(w)); } catch (err) {} } }
       seenBtn.textContent = seenLabel();
+      if (watchBtn) watchBtn.textContent = watchLabel();
     }, true);
     toolsList.appendChild(seenBtn);
 
@@ -385,12 +406,14 @@
       filmBtn.style.display = onWatch && window.__rfAutoNextOn ? '' : 'none';
       filmBtn.textContent = filmLabel();
       seenBtn.style.display = pageSeenKey() ? '' : 'none';
+      watchBtn.style.display = pageSeenKey() ? '' : 'none';
+      watchBtn.textContent = watchLabel();
       seenBtn.style.top = onWatch ? '140px' : '102px';
       incBtn.style.display = pageSeenKey() ? '' : 'none';
       incBtn.style.top = onWatch ? '178px' : '140px';
       incBtn.textContent = incLabel();
       seenBtn.textContent = seenLabel();
-    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; seenBtn.style.display = 'none'; incBtn.style.display = 'none'; }
+    } else if (btn && !running) { btn.style.display = 'none'; panel.style.display = 'none'; filmBtn.style.display = 'none'; seenBtn.style.display = 'none'; incBtn.style.display = 'none'; if (watchBtn) watchBtn.style.display = 'none'; }
 
     // pornire automata dupa ce am venit de pe pagina de prezentare
     if (onWatch && !running) {
