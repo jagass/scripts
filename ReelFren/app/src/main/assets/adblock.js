@@ -2,6 +2,7 @@
 // Ruleaza in pagina si in toate iframe-urile.
 (function () {
   if (window.__rfAd) return;
+  if (location.hostname === 'appassets.androidplatform.net') return; // lista DramaFren din aplicatie
   window.__rfAd = true;
 
   var RX = new RegExp([

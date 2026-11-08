@@ -10,8 +10,8 @@ android {
         applicationId 'net.reelfren.app'
         minSdk 26
         targetSdk 34
-        versionCode 46
-        versionName '5.5'
+        versionCode 47
+        versionName '5.6'
     }
 
     buildFeatures {
@@ -27,12 +27,22 @@ android {
             applicationId 'net.reelfren.app'
             buildConfigField 'String', 'HOME_URL', '"https://reelfren.net/explore"'
             buildConfigField 'String', 'ALLOWED_DOMAINS', '"reelfren.net"'
+            buildConfigField 'boolean', 'HUB', 'false'
         }
         shortmax {
             dimension 'site'
             applicationId 'live.shorttw.shortmax.app'
             buildConfigField 'String', 'HOME_URL', '"https://shortmax.shorttw.live/index.php"'
             buildConfigField 'String', 'ALLOWED_DOMAINS', '"shorttw.live"'
+            buildConfigField 'boolean', 'HUB', 'false'
+        }
+        // DramaFren: o singura lista cu filmele de pe idrama.dramafren.org si toate site-urile legate
+        dramafren {
+            dimension 'site'
+            applicationId 'org.dramafren.app'
+            buildConfigField 'String', 'HOME_URL', '"https://idrama.dramafren.org/"'
+            buildConfigField 'String', 'ALLOWED_DOMAINS', '"dramafren.org"'
+            buildConfigField 'boolean', 'HUB', 'true'
         }
     }
 

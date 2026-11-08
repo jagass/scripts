@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DramaFren</title>
+<style>
+  :root { --bg:#101014; --card:#1b1b22; --line:#2a2a33; --tx:#eee; --mut:#9a9aa8; --acc:#e94b6a; --ok:#3fb27f; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:14px/1.35 system-ui, -apple-system, Roboto, sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:rgba(16,16,20,.97); border-bottom:1px solid var(--line); padding:8px 10px 6px; }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .row + .row { margin-top:6px; }
+  h1 { font-size:17px; margin:0 6px 0 0; color:var(--acc); }
+  button, select, input { font:inherit; color:var(--tx); background:#24242d; border:1px solid var(--line); border-radius:9px; padding:7px 10px; }
+  button:active { background:#33333f; }
+  button.on { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.go { background:#2b6cdf; border-color:#2b6cdf; color:#fff; }
+  #q { flex:1; min-width:140px; }
+  #minep { width:64px; }
+  #status { color:var(--mut); font-size:12px; margin-top:6px; min-height:16px; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:10px; padding:10px; }
+  .c { position:relative; background:var(--card); border-radius:10px; overflow:hidden; }
+  .c img { width:100%; aspect-ratio:3/4; object-fit:cover; display:block; background:#222; }
+  .c .t { padding:5px 6px 2px; font-size:12.5px; line-height:1.25; height:3.6em; overflow:hidden; }
+  .c .m { display:flex; justify-content:space-between; align-items:center; padding:0 6px 6px; font-size:11px; color:var(--mut); gap:4px; }
+  .ep { position:absolute; top:5px; left:5px; background:rgba(0,0,0,.75); color:#fff; font-size:11px; font-weight:600; padding:2px 6px; border-radius:6px; }
+  .nw { position:absolute; top:5px; right:5px; background:var(--ok); color:#fff; font-size:10px; font-weight:700; padding:2px 5px; border-radius:6px; }
+  .al { color:#ffcf5a; }
+  .mk { display:flex; gap:4px; }
+  .mk span { padding:2px 4px; border-radius:6px; background:#2a2a33; font-size:12px; }
+  .mk span.on { background:var(--acc); }
+  #more { display:block; margin:6px auto 24px; }
+  .empty { padding:30px 20px; color:var(--mut); text-align:center; line-height:1.6; }
+  .sheet { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:10; display:none; align-items:flex-end; }
+  .sheet.show { display:flex; }
+  .sheet > div { background:#17171d; width:100%; max-height:80vh; overflow:auto; border-radius:14px 14px 0 0; padding:14px; }
+  .sheet h3 { margin:0 0 10px; font-size:16px; }
+  .li { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); }
+  .li .x { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .li small { color:var(--mut); display:block; }
+  .st-ok { color:var(--ok); } .st-cf { color:#ffcf5a; } .st-gol { color:#e66; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <h1>DramaFren</h1>
+    <button id="crawl" class="go">🔄 Caută filme</button>
+    <button id="sitesBtn">🌐 Site-uri</button>
+    <button id="menuBtn">⋯</button>
+  </div>
+  <div class="row">
+    <input id="q" type="search" placeholder="Caută titlu…" autocomplete="off">
+    <select id="sort">
+      <option value="ep">Episoade ↓</option>
+      <option value="new">Noi primele</option>
+      <option value="ti">Titlu A-Z</option>
+    </select>
+  </div>
+  <div class="row">
+    <button id="vAll" class="on">Toate</button>
+    <button id="vWatch">📌 De văzut</button>
+    <button id="vSeen">👁 Văzute</button>
+    <input id="minep" type="number" min="0" placeholder="min EP" inputmode="numeric">
+    <select id="site"><option value="">Toate site-urile</option></select>
+  </div>
+  <div id="status"></div>
+</header>
+<div id="grid"></div>
+<button id="more" style="display:none">Arată mai multe</button>
+<div id="empty" class="empty" style="display:none"></div>
+
+<div id="sheet" class="sheet"><div id="sheetBody"></div></div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var groups = [], sites = [], totalItems = 0, crawling = false;
+  var view = 'all', shown = 0, filtered = [], PAGE = 90;
+  var lastVisit = +(lsGet('df.lastVisit') || 0), visitStart = Date.now();
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+  function loadSet(k) { try { return JSON.parse(lsGet(k) || '{}') || {}; } catch (e) { return {}; } }
+  var watch = loadSet('df.watch'), seen = loadSet('df.seen');
+  function marked(set, g) { for (var i = 0; i < g.ks.length; i++) if (set[g.ks[i]]) return true; return false; }
+  function toggleMark(set, name, g) {
+    if (marked(set, g)) g.ks.forEach(function (k) { delete set[k]; });
+    else g.ks.forEach(function (k) { set[k] = 1; });
+    lsSet(name, JSON.stringify(set));
+  }
+
+  function send(m) { try { RFBridge.postMessage(m); } catch (e) { } }
+  if (window.RFBridge) {
+    RFBridge.onmessage = function (ev) {
+      var d = ev.data || '';
+      if (d.indexOf('hub:data:') === 0) {
+        var o = JSON.parse(d.slice(9));
+        groups = o.groups || []; sites = o.sites || []; totalItems = o.items || 0;
+        fillSites(); apply(true);
+      } else if (d.indexOf('hub:status:') === 0) {
+        status(JSON.parse(d.slice(11)));
+      }
+    };
+    send('hello');
+    send('hub:get');
+  } else {
+    $('status').textContent = 'Deschide lista din aplicația DramaFren.';
+  }
+  window.addEventListener('pagehide', function () { lsSet('df.lastVisit', String(visitStart)); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) lsSet('df.lastVisit', String(visitStart)); });
+
+  var lastStatus = {};
+  function status(s) {
+    lastStatus = s;
+    crawling = !!s.crawling;
+    $('crawl').textContent = crawling ? '⏹ Oprește' : '🔄 Caută filme';
+    $('crawl').className = crawling ? 'on' : 'go';
+    var t = groups.length + ' filme (' + totalItems + ' din toate site-urile)';
+    if (crawling) t = '⏳ ' + s.host + ' · pagina ' + s.done + ' (încă ' + s.left + ') · +' + s.added + ' noi · ' + t;
+    else if (s.text) t = s.text + ' · ' + t;
+    if (s.hashing > 0) t += ' · compar postere: ' + s.hashing;
+    $('status').textContent = t;
+  }
+
+  function fillSites() {
+    var sel = $('site'), cur = sel.value;
+    sel.innerHTML = '<option value="">Toate site-urile</option>' + sites.filter(function (s) { return s.on; }).map(function (s) {
+      return '<option value="' + s.host + '">' + s.host.replace('.dramafren.org', '') + ' (' + s.n + ')</option>';
+    }).join('');
+    sel.value = cur;
+  }
+
+  function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  function apply(keepScroll) {
+    var q = norm($('q').value.trim()), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
+    var words = q ? q.split(/\s+/) : [];
+    filtered = groups.filter(function (g) {
+      var w = marked(watch, g), s = marked(seen, g);
+      if (view === 'watch') { if (!w || s) return false; }
+      else if (view === 'seen') { if (!s) return false; }
+      else if (s) return false;
+      if (min && g.ep < min) return false;
+      if (site && g.ho !== site && !(g.al || []).some(function (a) { return a[1] === site; })) return false;
+      if (words.length) {
+        var tt = norm(g.ti + ' ' + (g.al || []).map(function (a) { return a[3]; }).join(' '));
+        for (var i = 0; i < words.length; i++) if (tt.indexOf(words[i]) < 0) return false;
+      }
+      return true;
+    });
+    filtered.sort(sort === 'ep' ? function (a, b) { return b.ep - a.ep || b.t - a.t; }
+      : sort === 'new' ? function (a, b) { return b.t - a.t; }
+      : function (a, b) { return a.ti.localeCompare(b.ti); });
+    var keep = keepScroll ? Math.max(shown, PAGE) : PAGE;
+    $('grid').innerHTML = '';
+    shown = 0;
+    render(keep);
+    var e = $('empty');
+    if (!groups.length) {
+      e.innerHTML = 'Lista e goală.<br>Apasă <b>🔄 Caută filme</b>: aplicația trece singură prin idrama și toate site-urile legate și adună filmele aici.<br><br>Dacă un site cere verificare (Cloudflare), deschide-l o dată din <b>🌐 Site-uri</b>, apoi caută din nou.';
+      e.style.display = '';
+    } else if (!filtered.length) {
+      e.textContent = view === 'watch' ? 'Nu ai niciun film la „De văzut”. Apasă 📌 pe un film.' : view === 'seen' ? 'Niciun film văzut încă.' : 'Niciun film nu se potrivește.';
+      e.style.display = '';
+    } else e.style.display = 'none';
+    status(lastStatus);
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function render(upto) {
+    var html = '';
+    var end = Math.min(filtered.length, upto);
+    for (var i = shown; i < end; i++) {
+      var g = filtered[i];
+      var isNew = lastVisit && g.t > lastVisit;
+      html += '<div class="c" data-i="' + i + '">'
+        + '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(g.im) + '" data-k="' + esc(g.k) + '">'
+        + (g.ep ? '<span class="ep">' + g.ep + ' EP</span>' : '')
+        + (isNew ? '<span class="nw">NOU</span>' : '')
+        + '<div class="t">' + esc(g.ti) + '</div>'
+        + '<div class="m"><span>' + esc(g.ho.replace('.dramafren.org', '')) + (g.al ? ' <b class="al">+' + g.al.length + '</b>' : '') + '</span>'
+        + '<span class="mk"><span data-a="w" class="' + (marked(watch, g) ? 'on' : '') + '">📌</span><span data-a="s" class="' + (marked(seen, g) ? 'on' : '') + '">👁</span></span></div>'
+        + '</div>';
+    }
+    $('grid').insertAdjacentHTML('beforeend', html);
+    shown = end;
+    $('more').style.display = shown < filtered.length ? '' : 'none';
+    $('more').textContent = 'Arată mai multe (' + (filtered.length - shown) + ')';
+  }
+  // posterele care nu se incarca direct trec prin aplicatie (cu adresa site-ului ca referinta)
+  document.addEventListener('error', function (e) {
+    var im = e.target;
+    if (im.tagName !== 'IMG' || im.__retry) return;
+    im.__retry = 1;
+    im.src = '/img?u=' + encodeURIComponent(im.getAttribute('src')) + '&k=' + encodeURIComponent(im.getAttribute('data-k') || '');
+  }, true);
+
+  $('grid').addEventListener('click', function (e) {
+    var c = e.target.closest('.c');
+    if (!c) return;
+    var g = filtered[+c.getAttribute('data-i')];
+    var a = e.target.getAttribute('data-a');
+    if (a === 'w' || a === 's') {
+      toggleMark(a === 'w' ? watch : seen, a === 'w' ? 'df.watch' : 'df.seen', g);
+      e.target.className = marked(a === 'w' ? watch : seen, g) ? 'on' : '';
+      if (view !== 'all' || a === 's') setTimeout(function () { apply(true); }, 250);
+      return;
+    }
+    if (e.target.classList.contains('al')) return showAlts(g);
+    send('hub:open:' + g.k);
+  });
+
+  function showAlts(g) {
+    var list = [[g.k, g.ho, g.ep, g.ti]].concat(g.al || []);
+    sheet('<h3>' + esc(g.ti) + '</h3>' + list.map(function (a) {
+      return '<div class="li"><div class="x">' + esc(a[3]) + '<small>' + esc(a[1]) + ' · ' + (a[2] || '?') + ' EP</small></div><button data-open="' + esc(a[0]) + '">Deschide</button></div>';
+    }).join(''));
+  }
+  function sheet(html) { $('sheetBody').innerHTML = html; $('sheet').className = 'sheet show'; }
+  $('sheet').addEventListener('click', function (e) {
+    if (e.target === $('sheet')) { $('sheet').className = 'sheet'; return; }
+    var o = e.target.getAttribute('data-open');
+    if (o) { $('sheet').className = 'sheet'; send('hub:open:' + o); return; }
+    var s = e.target.getAttribute('data-site');
+    if (s) { send('hub:site:' + s); if (/^open:/.test(s)) $('sheet').className = 'sheet'; else setTimeout(showSites, 300); return; }
+    var c = e.target.getAttribute('data-cmd');
+    if (c) { $('sheet').className = 'sheet'; c === 'add' ? addSite() : c === 'clear' ? (confirm('Ștergi toate filmele din listă? (De văzut / Văzute rămân)') && send('hub:clear')) : send('hub:' + c); }
+  });
+
+  function showSites() {
+    var stTxt = { ok: '<span class="st-ok">merge</span>', cf: '<span class="st-cf">cere verificare: deschide-l o dată</span>', gol: '<span class="st-gol">niciun film găsit</span>' };
+    sheet('<h3>Site-uri (' + sites.length + ')</h3>'
+      + '<p style="color:#9a9aa8;margin:0 0 6px">Site-urile noi din meniuri se adaugă singure. Cele oprite nu apar în listă și nu sunt căutate.</p>'
+      + sites.map(function (s) {
+        return '<div class="li"><div class="x">' + esc(s.host) + '<small>' + s.n + ' filme · ' + (stTxt[s.st] || 'necăutat încă') + '</small></div>'
+          + '<button data-site="open:' + esc(s.host) + '">Deschide</button>'
+          + '<button data-site="' + (s.on ? 'off' : 'on') + ':' + esc(s.host) + '" class="' + (s.on ? 'on' : '') + '">' + (s.on ? 'Pornit' : 'Oprit') + '</button></div>';
+      }).join('')
+      + '<div class="row" style="margin-top:10px"><button data-cmd="add">➕ Adaugă site</button></div>');
+  }
+  function addSite() {
+    var u = prompt('Adresa site-ului (ex. https://exemplu.dramafren.org):');
+    if (u) send('hub:addsite:' + u.trim());
+  }
+
+  $('crawl').onclick = function () { send(crawling ? 'hub:stop' : 'hub:crawl'); };
+  $('sitesBtn').onclick = showSites;
+  $('menuBtn').onclick = function () {
+    sheet('<h3>Meniu</h3>'
+      + '<div class="li"><div class="x">Deschide idrama.dramafren.org</div><button data-site="open:idrama.dramafren.org">Deschide</button></div>'
+      + '<div class="li"><div class="x">Diagnostic (copiază, pentru chat)</div><button data-cmd="diag">Copiază</button></div>'
+      + '<div class="li"><div class="x">Golește lista de filme</div><button data-cmd="clear">Golește</button></div>');
+  };
+  var tmr;
+  $('q').addEventListener('input', function () { clearTimeout(tmr); tmr = setTimeout(function () { apply(false); }, 150); });
+  $('minep').addEventListener('input', function () { clearTimeout(tmr); tmr = setTimeout(function () { apply(false); }, 250); });
+  $('sort').onchange = $('site').onchange = function () { apply(false); };
+  $('more').onclick = function () { render(shown + PAGE); };
+  window.addEventListener('scroll', function () {
+    if (shown < filtered.length && window.innerHeight + window.scrollY > document.body.scrollHeight - 800) render(shown + PAGE);
+  });
+  function setView(v) {
+    view = v;
+    $('vAll').className = v === 'all' ? 'on' : '';
+    $('vWatch').className = v === 'watch' ? 'on' : '';
+    $('vSeen').className = v === 'seen' ? 'on' : '';
+    apply(false);
+  }
+  $('vAll').onclick = function () { setView('all'); };
+  $('vWatch').onclick = function () { setView('watch'); };
+  $('vSeen').onclick = function () { setView('seen'); };
+})();
+</script>
+</body>
+</html>

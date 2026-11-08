@@ -1,4 +1,4 @@
-name: Build Android APKs (ReelFren + ShortMax)
+name: Build Android APKs (ReelFren + ShortMax + DramaFren)
 
 on:
   push:
@@ -67,23 +67,24 @@ jobs:
           fi
 
       - name: Build APK
-        run: gradle --no-daemon assembleReelfrenRelease assembleShortmaxRelease
+        run: gradle --no-daemon assembleReelfrenRelease assembleShortmaxRelease assembleDramafrenRelease
 
       - name: Rename APKs
         run: |
           cp app/build/outputs/apk/reelfren/release/app-reelfren-release.apk ReelFren.apk
           cp app/build/outputs/apk/shortmax/release/app-shortmax-release.apk ShortMax.apk
+          cp app/build/outputs/apk/dramafren/release/app-dramafren-release.apk DramaFren.apk
 
       # Copie a APK-urilor in depozit (folderul apk/): se descarca de pe raw.githubusercontent.com, un alt
       # server decat cel al versiunilor (care uneori da "504 Gateway Time-out"). Link fix = mereu ultima versiune.
       - name: Publish APK copies (fixed raw link)
         run: |
           mkdir -p ../apk
-          cp ReelFren.apk ShortMax.apk ../apk/
+          cp ReelFren.apk ShortMax.apk DramaFren.apk ../apk/
           cd ..
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apk/ReelFren.apk apk/ShortMax.apk
+          git add apk/ReelFren.apk apk/ShortMax.apk apk/DramaFren.apk
           git commit -m "Update APKs (build ${{ github.run_number }}) [skip ci]" || exit 0
           for i in 1 2 3; do
             git push origin HEAD:${{ github.ref_name }} && break
@@ -97,6 +98,7 @@ jobs:
           path: |
             ReelFren/ReelFren.apk
             ReelFren/ShortMax.apk
+            ReelFren/DramaFren.apk
 
       - name: Publish release (download direct de pe telefon)
         uses: softprops/action-gh-release@v2
@@ -113,3 +115,11 @@ jobs:
           name: ShortMax Android v${{ github.run_number }}
           target_commitish: ${{ github.sha }}
           files: ReelFren/ShortMax.apk
+
+      - name: Publish DramaFren release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dramafren-v${{ github.run_number }}
+          name: DramaFren Android v${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          files: ReelFren/DramaFren.apk

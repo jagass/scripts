@@ -3,6 +3,7 @@
 // iar aplicatia afiseaza propriile controale (derulare, pauza, episodul urmator).
 (function () {
   if (window.__rfInjected) return;
+  if (location.hostname === 'appassets.androidplatform.net') return; // lista DramaFren din aplicatie
   window.__rfInjected = true;
 
   var isTop = window.top === window;

@@ -51,6 +51,16 @@ public class MainActivity extends Activity {
     /** Domenii in care aplicatia are voie sa navigheze. Restul (reclame, redirecturi) sunt blocate. */
     private static final String[] ALLOWED_DOMAINS = BuildConfig.ALLOWED_DOMAINS.split(",");
 
+    /** DramaFren: lista comuna de filme de pe mai multe site-uri (pagina din aplicatie + robot). */
+    private static final boolean HUB = BuildConfig.HUB;
+    private static final String ASSET_HOST = "appassets.androidplatform.net";
+    private static final String CATALOG_URL = "https://" + ASSET_HOST + "/catalog.html";
+    private Hub hub;
+    private WebView crawler;
+    private String aggJs = "";
+
+    private String homeUrl() { return HUB ? CATALOG_URL : HOME_URL; }
+
     private FrameLayout root;
     private WebView webView;
     private ProgressBar progress;
@@ -198,6 +208,10 @@ public class MainActivity extends Activity {
         filterJs = readAsset("filter.js");
         adblockJs = readAsset("adblock.js");
         epcheckJs = readAsset("epcheck.js");
+        if (HUB) {
+            aggJs = readAsset("agg.js");
+            hub = new Hub(this, hubOwner);
+        }
         chromeClient = new ChromeClient();
 
         webView = createWebView();
@@ -208,7 +222,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(HOME_URL);
+            webView.loadUrl(homeUrl());
         }
     }
 
@@ -251,8 +265,13 @@ public class MainActivity extends Activity {
                 site.add("https://" + d);
                 site.add("https://*." + d);
             }
-            WebViewCompat.addDocumentStartJavaScript(w, filterJs, site);
-            WebViewCompat.addDocumentStartJavaScript(w, epcheckJs, site);
+            if (HUB) {
+                // cauta filmele pe orice site deschis (agg.js verifica singur unde ruleaza)
+                WebViewCompat.addDocumentStartJavaScript(w, aggJs, Collections.singleton("*"));
+            } else {
+                WebViewCompat.addDocumentStartJavaScript(w, filterJs, site);
+                WebViewCompat.addDocumentStartJavaScript(w, epcheckJs, site);
+            }
             startScriptInjected = true;
         }
 
@@ -281,9 +300,15 @@ public class MainActivity extends Activity {
     }
 
     /** Deschide un serial intr-o pagina noua, peste lista (care ramane incarcata). */
-    private void openTab(String url) {
+    private void openTab(String url) { openTab(url, null); }
+
+    /** openJs: script rulat la inceputul paginii (ex. ce film sa deschida DramaFren pe un site fara linkuri). */
+    private void openTab(String url, String openJs) {
         if (cinema) exitCinema();
         WebView w = createWebView();
+        if (openJs != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(w, openJs, Collections.singleton("*"));
+        }
         webView.setVisibility(View.GONE);
         root.addView(w, tabs.size(), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -325,6 +350,7 @@ public class MainActivity extends Activity {
         String host = uri.getHost();
         if (host == null) return false;
         host = host.toLowerCase();
+        if (HUB && host.equals(ASSET_HOST)) return true;
         return hostIn(host, java.util.Arrays.asList(ALLOWED_DOMAINS)) || hostIn(host, userAllowedHosts);
     }
 
@@ -398,6 +424,7 @@ public class MainActivity extends Activity {
 
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+            if (HUB && ASSET_HOST.equals(request.getUrl().getHost())) return serveHubAsset(request.getUrl());
             if (adblockOn && isAdHost(request.getUrl().getHost())) {
                 return new WebResourceResponse("text/plain", "utf-8",
                         new java.io.ByteArrayInputStream(new byte[0]));
@@ -416,14 +443,18 @@ public class MainActivity extends Activity {
             if (!adblockOn) view.evaluateJavascript(AD_OFF_JS, null);
             view.evaluateJavascript(adblockJs, null);
             // scriptul se protejeaza singur de dubla rulare, deci e sigur sa-l rulam si aici
-            view.evaluateJavascript(filterJs, null);
-            view.evaluateJavascript(epcheckJs, null);
+            if (HUB) {
+                view.evaluateJavascript(aggJs, null);
+            } else {
+                view.evaluateJavascript(filterJs, null);
+                view.evaluateJavascript(epcheckJs, null);
+            }
             CookieManager.getInstance().flush();
         }
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (request.isForMainFrame()) {
+            if (request.isForMainFrame() && view == webView) {
                 errorView.setVisibility(View.VISIBLE);
             }
         }
@@ -579,6 +610,11 @@ public class MainActivity extends Activity {
             i.putExtra(android.content.Intent.EXTRA_TITLE, name);
             try { startActivityForResult(i, REQ_SAVE_BACKUP); }
             catch (Exception e) { Toast.makeText(this, "Nu pot deschide salvarea de fi\u0219iere", Toast.LENGTH_LONG).show(); }
+            return;
+        }
+        if (HUB && data.startsWith("hub:")) {
+            if (data.startsWith("hub:report:")) hub.onReport(data.substring(11), view == crawler);
+            else hub.onCommand(data.substring(4));
             return;
         }
         if (data.equals("adblock:toggle")) {
@@ -936,6 +972,64 @@ public class MainActivity extends Activity {
         e.recycle();
     }
 
+    // ------------------------------------------------------------------ DramaFren
+
+    private final Hub.Owner hubOwner = new Hub.Owner() {
+        @Override public WebView createCrawler() {
+            // robotul: o pagina ascunsa in spatele celorlalte, care trece pe rand prin site-uri
+            crawler = createWebView();
+            crawler.getSettings().setMediaPlaybackRequiresUserGesture(true);
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(crawler, "window.__dfCrawl=1;", Collections.singleton("*"));
+            }
+            root.addView(crawler, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            return crawler;
+        }
+
+        @Override public void toCatalog(String msg) {
+            if (tabs.isEmpty()) return;
+            for (JavaScriptReplyProxy p : new ArrayList<>(framesOf(tabs.get(0)))) {
+                try { p.postMessage(msg); } catch (Exception ignored) { }
+            }
+        }
+
+        @Override public void openUrl(String url, String openJs) {
+            Uri u = Uri.parse(url);
+            if (u.getHost() != null) userAllowedHosts.add(u.getHost().toLowerCase());
+            openTab(url, openJs);
+        }
+
+        @Override public void allowHost(String host) { userAllowedHosts.add(host); }
+
+        @Override public void copyText(String label, String text) {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text));
+        }
+
+        @Override public void toast(String text) { Toast.makeText(MainActivity.this, text, Toast.LENGTH_LONG).show(); }
+    };
+
+    /** Pagina listei (din aplicatie) si posterele care nu se incarca direct (cerute cu adresa site-ului). */
+    private WebResourceResponse serveHubAsset(Uri uri) {
+        try {
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            if (path.equals("/img")) {
+                String img = uri.getQueryParameter("u"), k = uri.getQueryParameter("k");
+                String host = k != null && k.contains("|") ? k.substring(0, k.indexOf('|')) : Uri.parse(img).getHost();
+                byte[] b = Hub.download(img, "https://" + host + "/");
+                return new WebResourceResponse("image/jpeg", null, new java.io.ByteArrayInputStream(b));
+            }
+            String name = path.length() > 1 ? path.substring(1) : "catalog.html";
+            if (!name.equals("catalog.html")) return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
+                    null, new java.io.ByteArrayInputStream(new byte[0]));
+            return new WebResourceResponse("text/html", "utf-8", getAssets().open(name));
+        } catch (Exception e) {
+            return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found",
+                    null, new java.io.ByteArrayInputStream(new byte[0]));
+        }
+    }
+
     private String readAsset(String name) {
         try (InputStream in = getAssets().open(name)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -970,7 +1064,7 @@ public class MainActivity extends Activity {
         retry.setOnClickListener(v -> {
             errorView.setVisibility(View.GONE);
             String url = webView.getUrl();
-            if (url == null || url.startsWith("about:")) webView.loadUrl(HOME_URL);
+            if (url == null || url.startsWith("about:")) webView.loadUrl(homeUrl());
             else webView.reload();
         });
         box.addView(retry, lp);
@@ -1044,11 +1138,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (hub != null) hub.saveNow();
         CookieManager.getInstance().flush();
     }
 
     @Override
     protected void onDestroy() {
+        if (hub != null) { hub.stopCrawl(); hub.saveNow(); }
+        if (crawler != null) crawler.destroy();
         for (WebView w : tabs) w.destroy();
         super.onDestroy();
     }
