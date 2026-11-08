@@ -82,32 +82,6 @@
     }
     return best;
   }
-  // etichetele filmului (gen, categorie, limba, tara...): pentru filtrele AI / fara asiatice / fara anime
-  var TAG_KEY = /genre|tag|categor|label|type|class|theme|style|lang|region|country|area|origin|kind|badge|corner|mark|subtitle|dub/i;
-  function addTag(list, v) {
-    if (typeof v === 'number') return;
-    v = clean(v);
-    if (v.length < 2 || v.length > 30 || /^https?:|^\d+$/.test(v)) return;
-    v = v.toLowerCase();
-    if (list.indexOf(v) < 0 && list.length < 15) list.push(v);
-  }
-  function pickTags(o) {
-    var tags = [];
-    for (var k in o) {
-      if (!TAG_KEY.test(k)) continue;
-      var v = o[k];
-      if (typeof v === 'string') v.split(/[,|\/;]/).forEach(function (x) { addTag(tags, x); });
-      else if (Array.isArray(v)) v.slice(0, 15).forEach(function (x) {
-        if (typeof x === 'string') addTag(tags, x);
-        else if (x && typeof x === 'object') addTag(tags, x.title || x.name || x.tagName || x.tag_name || x.genreName || x.label || x.value || x.text || '');
-      });
-      else if (v && typeof v === 'object') addTag(tags, v.title || v.name || v.label || v.value || '');
-    }
-    return tags;
-  }
-  function mergeTags(a, b) { (b || []).forEach(function (t) { if (a.indexOf(t) < 0 && a.length < 15) a.push(t); }); return a; }
-  var tagStats = {};
-
   function scan(obj, depth) {
     if (!obj || depth > 9) return 0;
     var found = 0;
@@ -118,11 +92,10 @@
     if (typeof obj !== 'object') return 0;
     var img = pickImg(obj), title = img ? pickTitle(obj) : '';
     if (img && title) {
-      var key = normImg(img), eps = pickEps(obj), tags = pickTags(obj);
-      tags.forEach(function (t) { tagStats[t] = (tagStats[t] || 0) + 1; });
+      var key = normImg(img), eps = pickEps(obj);
       var prev = jsonItems[key];
-      if (!prev) { jsonItems[key] = { img: abs(img), title: title, eps: eps, tags: tags }; jsonCount++; found++; }
-      else { if (eps > prev.eps) prev.eps = eps; mergeTags(prev.tags, tags); }
+      if (!prev) { jsonItems[key] = { img: abs(img), title: title, eps: eps }; jsonCount++; found++; }
+      else if (eps > prev.eps) prev.eps = eps;
       if (!jsonKeys) jsonKeys = Object.keys(obj).slice(0, 40);
     }
     for (var k in obj) {
@@ -236,20 +209,11 @@
       var oc = !href && card.getAttribute('onclick') ? card.getAttribute('onclick').slice(0, 300) : '';
       var title = titleOf(card, im);
       var eps = epsFromText(card.innerText || '');
-      // etichetele scurte de pe card (ex. "AI", "Anime", "Dubbed"), fara titlu si episoade
-      var tags = [];
-      (card.innerText || '').split('\n').forEach(function (line) {
-        line = clean(line);
-        if (line && line !== title && line.length <= 20 && !EP_RE.test(line) && !/^\d+(\.\d+)?[km]?$/i.test(line)) addTag(tags, line);
-      });
-      var tg = card.querySelectorAll('[class*=tag],[class*=badge],[class*=label],[class*=genre],[class*=corner]');
-      for (var q = 0; q < tg.length && q < 8; q++) addTag(tags, tg[q].textContent);
       var j = jsonItems[key];
-      if (j) { if (!title || title.length < 3) title = j.title; if (j.eps > eps) eps = j.eps; mergeTags(tags, j.tags); }
-      tags.forEach(function (t) { tagStats[t] = (tagStats[t] || 0) + 1; });
+      if (j) { if (!title || title.length < 3) title = j.title; if (j.eps > eps) eps = j.eps; }
       if (!title) continue;
       var it = domItems[key];
-      if (!it) { domItems[key] = it = { key: key, img: src, title: title, eps: eps, href: href, oc: oc, tags: tags }; added++; dirty = true; }
+      if (!it) { domItems[key] = it = { key: key, img: src, title: title, eps: eps, href: href, oc: oc }; added++; dirty = true; }
       else if (eps > it.eps || (!it.href && href)) { it.eps = Math.max(eps, it.eps); it.href = it.href || href; dirty = true; }
       im.__dfSeen = 2;
     }
@@ -288,9 +252,7 @@
     harvestDom(); harvestLinks();
     var items = [];
     for (var k in domItems) {
-      var it = domItems[k];
-      if (jsonItems[k]) mergeTags(it.tags, jsonItems[k].tags);
-      var sig = it.eps + '|' + (it.href ? 1 : 0) + '|' + it.title.length + '|' + it.tags.length;
+      var it = domItems[k], sig = it.eps + '|' + (it.href ? 1 : 0) + '|' + it.title.length;
       if (sentKeys[k] === sig) continue;
       sentKeys[k] = sig;
       items.push(it);
@@ -298,10 +260,10 @@
     // filme gasite doar in JSON (ex. paginile urmatoare citite de robot): se deschid cautandu-le pe site
     for (var j in jsonItems) {
       if (domItems[j]) continue;
-      var ji = jsonItems[j], s2 = ji.eps + '|j|' + ji.tags.length;
+      var ji = jsonItems[j], s2 = ji.eps + '|j';
       if (sentKeys[j] === s2) continue;
       sentKeys[j] = s2;
-      items.push({ key: j, img: ji.img, title: ji.title, eps: ji.eps, href: '', oc: '', tags: ji.tags });
+      items.push({ key: j, img: ji.img, title: ji.title, eps: ji.eps, href: '', oc: '' });
     }
     var st = [], pg = [];
     for (var h in sites) if (!sentSites[h]) { sentSites[h] = 1; st.push(sites[h]); }
@@ -313,8 +275,6 @@
       msg.diag = {
         cf: /just a moment|attention required|un moment/i.test(document.title),
         domCards: Object.keys(domItems).length, jsonItems: jsonCount, jsonKeys: jsonKeys,
-        tags: Object.keys(tagStats).sort(function (a, b) { return tagStats[b] - tagStats[a]; }).slice(0, 40)
-          .map(function (t) { return t + ':' + tagStats[t]; }),
         apis: apiUrls, images: document.images.length, links: document.links.length
       };
     }

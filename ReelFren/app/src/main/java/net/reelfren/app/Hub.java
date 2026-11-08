@@ -75,8 +75,6 @@ class Hub {
 
     static class Item {
         String k, host, n, img, title, href = "", oc = "", page = "";
-        /** etichetele site-ului (gen, categorie, limba...), separate prin "|" */
-        String tags = "";
         int eps;
         long t;
         long h;
@@ -163,12 +161,10 @@ class Hub {
                 Item it = items.get(k);
                 int eps = o.optInt("eps", 0);
                 String href = o.optString("href"), oc = o.optString("oc");
-                JSONArray tg = o.optJSONArray("tags");
                 if (it == null) {
                     it = new Item();
                     it.k = k; it.host = host; it.n = n; it.img = img; it.title = title;
                     it.eps = eps; it.href = href; it.oc = oc; it.page = page; it.t = now;
-                    it.tags = mergeTags("", tg);
                     items.put(k, it);
                     newThisRun++;
                     changed = true;
@@ -178,8 +174,6 @@ class Hub {
                     if (it.href.isEmpty() && !href.isEmpty()) { it.href = href; changed = true; }
                     if (it.oc.isEmpty() && !oc.isEmpty()) it.oc = oc;
                     if (it.title.length() < 3 && title.length() >= 3) { it.title = title; changed = true; }
-                    String nt = mergeTags(it.tags, tg);
-                    if (!nt.equals(it.tags)) { it.tags = nt; changed = true; }
                 }
             }
         }
@@ -228,17 +222,6 @@ class Hub {
             scheduleSave();
             schedulePush();
         }
-    }
-
-    private static String mergeTags(String cur, JSONArray add) {
-        if (add == null || add.length() == 0) return cur;
-        List<String> l = new ArrayList<>();
-        if (!cur.isEmpty()) for (String t : cur.split("\\|")) l.add(t);
-        for (int i = 0; i < add.length() && l.size() < 15; i++) {
-            String t = add.optString(i).replace("|", " ").trim();
-            if (!t.isEmpty() && !l.contains(t)) l.add(t);
-        }
-        return String.join("|", l);
     }
 
     // ------------------------------------------------------------------ robot
@@ -466,17 +449,14 @@ class Hub {
                 JSONArray ks = new JSONArray();
                 if (best.hs == 1) ks.put("h" + Long.toHexString(best.h));
                 JSONArray alts = new JSONArray();
-                StringBuilder tags = new StringBuilder();
                 for (Item it : g) {
                     ks.put(it.k);
-                    if (!it.tags.isEmpty() && tags.length() < 400) tags.append(tags.length() > 0 ? "|" : "").append(it.tags);
                     if (it == best) continue;
                     Site s = sites.get(it.host);
                     if (s != null && !s.on) continue;
                     alts.put(new JSONArray().put(it.k).put(it.host).put(it.eps).put(it.title));
                 }
                 o.put("ks", ks);
-                if (tags.length() > 0) o.put("tg", tags.toString());
                 if (alts.length() > 0) o.put("al", alts);
                 out.put(o);
             } catch (Exception ignored) { }
@@ -641,7 +621,7 @@ class Hub {
             for (Item it : items.values()) {
                 is.put(new JSONArray().put(it.k).put(it.host).put(it.n).put(it.img).put(it.title)
                         .put(it.eps).put(it.href).put(it.oc).put(it.page).put(it.t)
-                        .put(it.hs == 1 ? Long.toHexString(it.h) : (it.hs == 2 ? "x" : "")).put(it.tags));
+                        .put(it.hs == 1 ? Long.toHexString(it.h) : (it.hs == 2 ? "x" : "")));
             }
             o.put("items", is);
             data = o.toString();
@@ -687,7 +667,6 @@ class Hub {
                 String h = a.optString(10);
                 if (h.equals("x")) it.hs = 2;
                 else if (!h.isEmpty()) { it.h = Long.parseUnsignedLong(h, 16); it.hs = 1; }
-                it.tags = a.optString(11);
                 items.put(it.k, it);
             }
         } catch (Exception ignored) { }
