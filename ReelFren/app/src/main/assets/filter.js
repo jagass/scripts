@@ -746,6 +746,7 @@
         '<input id="rf-cat-q" type="search" placeholder="Caută după titlu…">' +
         '<div id="rf-cat-scroll"><div id="rf-cat-grid"></div></div>';
       document.body.appendChild(catEl);
+      tapToClick(catEl);
       catGrid = catEl.querySelector('#rf-cat-grid');
       var sc = catEl.querySelector('#rf-cat-scroll');
       sc.addEventListener('scroll', function () {
@@ -810,7 +811,8 @@
       var openBtn = document.createElement('button');
       openBtn.id = 'rf-cat-open';
       openBtn.textContent = '📚 Lista mea';
-      openBtn.addEventListener('click', function () { catHiddenByUser = false; showCatalog(); });
+      // tap(): raspunde la atingere chiar daca pagina site-ului "inghite" click-urile
+      tap(openBtn, function () { catHiddenByUser = false; catForced = true; showCatalog(); });
       document.body.appendChild(openBtn);
     }
     catEl.querySelector('#rf-cat-q').value = catQuery;
@@ -885,6 +887,7 @@
         '<div id="rf-bk-msg" style="min-height:18px;color:#5eead4;font-size:13px"></div>' +
         '<button id="rf-bk-close" style="width:100%;padding:10px;border-radius:10px;border:0;background:#1f2937;color:#e5e7eb;font:600 14px system-ui;margin-top:6px">\u00CEnchide</button>';
       document.body.appendChild(box);
+      tapToClick(box);
       var msg = box.querySelector('#rf-bk-msg');
       box.querySelector('#rf-bk-close').addEventListener('click', function () { box.style.display = 'none'; });
       box.querySelector('#rf-bk-save').addEventListener('click', function () {
@@ -952,15 +955,18 @@
   function hideCatalog(byUser) {
     if (!catEl) return;
     catHiddenByUser = !!byUser;
+    if (byUser) catForced = false;
     catEl.style.display = 'none';
     document.documentElement.removeAttribute('data-rf-catalog');
     var ob = document.getElementById('rf-cat-open');
-    if (ob) ob.style.display = isHomeList() && catalogReady() ? 'block' : 'none';
+    if (ob) ob.style.display = isListPage() && catalogReady() ? 'block' : 'none';
   }
 
   function isSearchPage() { return /^\/search/.test(location.pathname); }
   var searchPathShown = null;
+  var catForced = false; // ai deschis tu lista ("Lista mea"): ramane deschisa pe orice pagina, pana apesi "Site"
   function updateCatalogVisibility() {
+    if (catForced && catalogReady() && !catHiddenByUser) { if (!catalogVisible()) showCatalog(); return; }
     var onSearch = isSearchPage();
     if ((isHomeList() || onSearch) && catalogReady() && !catHiddenByUser) {
       if (!catalogVisible()) showCatalog();
@@ -1086,6 +1092,24 @@
       });
     });
     syncInputs();
+  }
+
+  // Pentru zonele aplicatiei (lista ta, Backup): o atingere scurta "apasa" butonul/cardul direct,
+  // chiar daca pagina site-ului blocheaza atingerile; derularea nu e afectata.
+  function tapToClick(root) {
+    var sx = 0, sy = 0, moved = false;
+    root.addEventListener('touchstart', function (e) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; moved = false; }, { passive: true });
+    root.addEventListener('touchmove', function (e) {
+      var t = e.touches[0];
+      if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true;
+    }, { passive: true });
+    root.addEventListener('touchend', function (e) {
+      if (moved) return;
+      var t = e.target && e.target.closest && e.target.closest('button, a.rf-c');
+      if (!t || !root.contains(t)) return;
+      e.preventDefault();      // fara click-ul "fantoma" de dupa
+      t.click();               // ruleaza aceleasi actiuni ca un click normal
+    }, { passive: false });
   }
 
   // Raspunde la atingere imediat; ignora click-ul "fantoma" care vine dupa touchend.
