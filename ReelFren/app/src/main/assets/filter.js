@@ -624,10 +624,12 @@
   }
   function catalogVisible() { return !!catEl && catEl.style.display !== 'none'; }
 
+  // cautarea din lista ta (separata de filtrul paginilor site-ului): cuvintele de aici + cele din Filtru
+  var catQuery = '';
   function catalogFiltered() {
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
-    var words = searchWords();
+    var words = searchWords().concat(norm(catQuery).split(' ').filter(Boolean));
     var list = cat.items.filter(function (it) {
       // lista mare: fara serialele vazute; "Vazute": DOAR cele vazute; "De vazut": DOAR cele puse deoparte
       if (showWatch) { if (!inWatch(it.k) || isSeen(it.k)) return false; }
@@ -682,7 +684,7 @@
     if (!catEl) return;
     catNeedsRender = false;
     lastCatSig = JSON.stringify(state);
-    catList = isActive() || seenCount() || showSeen || showWatch ? catalogFiltered() : cat.items;
+    catList = isActive() || catQuery.trim() || seenCount() || showSeen || showWatch ? catalogFiltered() : cat.items;
     catShown = 0;
     catGrid.innerHTML = '';
     renderMore();
@@ -750,7 +752,12 @@
         if (sc.scrollTop + sc.clientHeight > sc.scrollHeight - 1200) renderMore();
       }, { passive: true });
       var q = catEl.querySelector('#rf-cat-q');
-      q.addEventListener('input', function () { state.q = q.value; save(); if (panel) syncInputs(); renderCatalogSoon(); });
+      // rezultatele apar pe loc, in timp ce scrii (doar in lista ta; paginile site-ului nu sunt afectate)
+      q.addEventListener('input', function () {
+        catQuery = q.value;
+        clearTimeout(catRenderTimer);
+        catRenderTimer = setTimeout(function () { renderCatalog(); catEl.querySelector('#rf-cat-scroll').scrollTop = 0; }, 120);
+      });
       catEl.querySelector('#rf-cat-site').addEventListener('click', function () { hideCatalog(true); });
       // incarcare doar la cererea ta: serialele noi / toata lista; acelasi buton opreste
       catEl.querySelector('#rf-cat-new').addEventListener('click', function () { loadAll(loading ? null : 'new'); });
@@ -806,7 +813,7 @@
       openBtn.addEventListener('click', function () { catHiddenByUser = false; showCatalog(); });
       document.body.appendChild(openBtn);
     }
-    catEl.querySelector('#rf-cat-q').value = state.q;
+    catEl.querySelector('#rf-cat-q').value = catQuery;
     updateSeenButton();
     loadButtons(loading, cards.length);
     catEl.style.display = 'flex';
@@ -951,9 +958,22 @@
     if (ob) ob.style.display = isHomeList() && catalogReady() ? 'block' : 'none';
   }
 
+  function isSearchPage() { return /^\/search/.test(location.pathname); }
+  var searchPathShown = null;
   function updateCatalogVisibility() {
-    if (isHomeList() && catalogReady() && !catHiddenByUser) { if (!catalogVisible()) showCatalog(); }
-    else if (catalogVisible() && !isHomeList()) hideCatalog(false);
+    var onSearch = isSearchPage();
+    if ((isHomeList() || onSearch) && catalogReady() && !catHiddenByUser) {
+      if (!catalogVisible()) showCatalog();
+      // butonul de cautare al site-ului: deschidem lista ta cu cursorul in casuta de cautare (rezultate instant)
+      if (onSearch && searchPathShown !== location.href) {
+        searchPathShown = location.href;
+        var u = new URLSearchParams(location.search), qv = u.get('q') || u.get('keyword') || u.get('query') || u.get('s') || '';
+        var box = catEl.querySelector('#rf-cat-q');
+        if (qv) { box.value = qv; catQuery = qv; renderCatalog(); }
+        setTimeout(function () { try { box.focus(); } catch (e) {} }, 50);
+      }
+    }
+    else if (catalogVisible() && !isHomeList() && !onSearch) hideCatalog(false);
   }
 
   // --- interfata -----------------------------------------------------------
