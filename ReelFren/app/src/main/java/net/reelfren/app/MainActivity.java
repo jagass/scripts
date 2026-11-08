@@ -339,6 +339,14 @@ public class MainActivity extends Activity {
     /** Momentul ultimei navigari pornite de tine (redirecturile imediat urmatoare sunt permise). */
     private long lastUserNav = 0;
 
+    /** Cand a inceput sa se incarce pagina din fiecare WebView (redirecturile imediate ale site-ului sunt permise). */
+    private final java.util.Map<WebView, Long> pageStarts = new java.util.WeakHashMap<>();
+
+    private long pageStartOf(WebView v) {
+        Long t = pageStarts.get(v);
+        return t == null ? 0 : t;
+    }
+
     private static boolean hostIn(String host, Iterable<String> domains) {
         for (String d : domains) {
             if (host.equals(d) || host.endsWith("." + d)) return true;
@@ -418,6 +426,14 @@ public class MainActivity extends Activity {
                 allowByUser(uri);
                 return false;
             }
+            // DramaFren: un site din lista care te muta singur pe alta adresa (ex. dupa verificarea Cloudflare
+            // sau pe domeniul lui nou) - redirect al serverului sau imediat dupa incarcarea paginii
+            if (HUB && !isAdHost(uri.getHost()) && isAllowed(Uri.parse(String.valueOf(view.getUrl())))
+                    && (request.isRedirect() || SystemClock.uptimeMillis() - pageStartOf(view) < 20000)) {
+                userAllowedHosts.add(uri.getHost().toLowerCase());
+                hub.onMoved(view.getUrl(), uri.toString());
+                return false;
+            }
             Toast.makeText(MainActivity.this, "Link extern blocat: " + uri.getHost(), Toast.LENGTH_SHORT).show();
             return true;
         }
@@ -442,6 +458,7 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             framesOf(view).clear();
+            pageStarts.put(view, SystemClock.uptimeMillis());
         }
 
         @Override

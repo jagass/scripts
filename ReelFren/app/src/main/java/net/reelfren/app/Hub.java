@@ -211,6 +211,19 @@ class Hub {
         }
     }
 
+    /** Un site din lista s-a mutat singur pe alta adresa: o adaugam ca site (cu filmele ei). */
+    void onMoved(String fromUrl, String toUrl) {
+        String to = hostOf(toUrl);
+        if (to.isEmpty() || sites.containsKey(to)) return;
+        Site from = sites.get(hostOf(fromUrl == null ? "" : fromUrl));
+        Site s = addSite(toUrl, from != null ? from.host : "", false);
+        if (s != null) {
+            s.url = toUrl;
+            scheduleSave();
+            schedulePush();
+        }
+    }
+
     // ------------------------------------------------------------------ robot
 
     private void enqueue(String url) {
