@@ -92,6 +92,11 @@ public class MainActivity extends Activity {
     private final java.util.Map<WebView, androidx.webkit.ScriptHandler> adOffFlags = new java.util.HashMap<>();
     private static final String AD_OFF_JS = "window.__rfAdOff=true;";
 
+    /** Backup: fisierul se salveaza unde alegi tu; la incarcare alegi fisierul. */
+    private static final int REQ_SAVE_BACKUP = 41, REQ_OPEN_FILE = 42;
+    private String pendingBackup = null;
+    private android.webkit.ValueCallback<Uri[]> fileCallback = null;
+
     /** Retele de reclame cunoscute: cererile spre ele primesc un raspuns gol. */
     private static final String[] AD_HOSTS = {
             "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
@@ -432,6 +437,19 @@ public class MainActivity extends Activity {
             progress.setVisibility(newProgress < 100 ? View.VISIBLE : View.GONE);
         }
 
+        // <input type="file"> din pagina (ex. "Incarca backup")
+        @Override
+        public boolean onShowFileChooser(WebView view, android.webkit.ValueCallback<Uri[]> callback, FileChooserParams params) {
+            if (fileCallback != null) fileCallback.onReceiveValue(null);
+            fileCallback = callback;
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            try { startActivityForResult(i, REQ_OPEN_FILE); }
+            catch (Exception e) { fileCallback = null; return false; }
+            return true;
+        }
+
         @Override
         public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, android.os.Message resultMsg) {
             // Ferestrele noi sunt blocate (pop-up-uri de reclame). Exceptie: un link de tip "deschide in
@@ -526,6 +544,17 @@ public class MainActivity extends Activity {
             List<JavaScriptReplyProxy> fr = framesOf(view);
             if (!fr.contains(proxy)) fr.add(proxy);
             if (cinema && view == webView) try { proxy.postMessage("cinema:1"); } catch (Exception ignored) { }
+            return;
+        }
+        if (data.startsWith("backup:save:")) {
+            pendingBackup = data.substring("backup:save:".length());
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            i.setType("application/json");
+            i.putExtra(android.content.Intent.EXTRA_TITLE, "ReelFren-backup-"
+                    + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()) + ".json");
+            try { startActivityForResult(i, REQ_SAVE_BACKUP); }
+            catch (Exception e) { Toast.makeText(this, "Nu pot deschide salvarea de fi\u0219iere", Toast.LENGTH_LONG).show(); }
             return;
         }
         if (data.equals("adblock:toggle")) {
@@ -944,6 +973,27 @@ public class MainActivity extends Activity {
             // inapoi la lista de seriale, exact cum era
         } else {
             super.onBackPressed();
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, android.content.Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
+        if (requestCode == REQ_SAVE_BACKUP) {
+            if (uri != null && pendingBackup != null) {
+                try (java.io.OutputStream out = getContentResolver().openOutputStream(uri)) {
+                    out.write(pendingBackup.getBytes(StandardCharsets.UTF_8));
+                    Toast.makeText(this, "Backup salvat", Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    Toast.makeText(this, "Backup-ul nu s-a putut salva", Toast.LENGTH_LONG).show();
+                }
+            }
+            pendingBackup = null;
+        } else if (requestCode == REQ_OPEN_FILE) {
+            if (fileCallback != null) fileCallback.onReceiveValue(uri != null ? new Uri[]{uri} : null);
+            fileCallback = null;
         }
     }
 

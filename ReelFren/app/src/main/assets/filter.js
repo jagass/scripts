@@ -712,7 +712,7 @@
       catEl.innerHTML = '<div id="rf-cat-top"><div><b>📚 Toate serialele</b><br><span id="rf-cat-count"></span></div>' +
         '<span id="rf-cat-status"></span><button id="rf-cat-site">🌐 Site</button></div>' +
         '<div id="rf-cat-bar"><button id="rf-cat-new">\uD83D\uDD04 Caut\u0103 noi</button><button id="rf-cat-all">\u2B07\uFE0F \u00CEncarc\u0103 tot</button>' +
-        '<button id="rf-cat-seen"></button></div>' +
+        '<button id="rf-cat-seen"></button><button id="rf-cat-backup">\uD83D\uDCBE Backup</button></div>' +
         '<input id="rf-cat-q" type="search" placeholder="Caută după titlu…">' +
         '<div id="rf-cat-scroll"><div id="rf-cat-grid"></div></div>';
       document.body.appendChild(catEl);
@@ -728,6 +728,7 @@
       catEl.querySelector('#rf-cat-new').addEventListener('click', function () { loadAll(loading ? null : 'new'); });
       catEl.querySelector('#rf-cat-all').addEventListener('click', function () { loadAll(loading ? null : 'full'); });
       catEl.querySelector('#rf-cat-seen').addEventListener('click', function () { showSeen = !showSeen; renderCatalog(); updateSeenButton(); });
+      catEl.querySelector('#rf-cat-backup').addEventListener('click', showBackup);
       catGrid.addEventListener('click', function (e) {
         var a = e.target.closest('a.rf-c');
         if (!a) return;
@@ -794,6 +795,75 @@
     if (ob) ob.style.bottom = (h ? Math.ceil(h) + 66 : 150) + 'px';
   }
   setInterval(function () { if (catalogVisible()) fitAboveSiteMenu(); }, 4000);
+
+  // --- Backup: lista, serialele vazute, verificarile si setarile intr-un fisier (si inapoi) ---
+  var BACKUP_KEYS = ['rfCatalog.v1', 'rfSeen.v1', 'rfEpStatus.v1', 'rfAutoNext'];
+  function backupData() {
+    saveNow();
+    var d = { app: 'ReelFren', v: 1, at: new Date().toISOString(), data: {} };
+    BACKUP_KEYS.forEach(function (k) { try { var v = localStorage.getItem(k); if (v !== null) d.data[k] = v; } catch (e) {} });
+    return JSON.stringify(d);
+  }
+  function restoreData(text) {
+    var d = JSON.parse(text);
+    if (!d || d.app !== 'ReelFren' || !d.data) throw new Error('nu e un backup ReelFren');
+    BACKUP_KEYS.forEach(function (k) { if (typeof d.data[k] === 'string') localStorage.setItem(k, d.data[k]); });
+    cat = null; catMap = null; seen = null; epStatus = null;
+    catLoad();
+    return cat.items.length;
+  }
+  function showBackup() {
+    var box = document.getElementById('rf-backup');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'rf-backup';
+      box.style.cssText = 'position:fixed;left:12px;right:12px;top:90px;z-index:2147483647;background:#0b1220;color:#e5e7eb;border:1px solid #2dd4bf;' +
+        'border-radius:14px;padding:16px;font:14px system-ui,sans-serif;box-shadow:0 10px 30px #000c';
+      box.innerHTML = '<b style="font-size:16px">\uD83D\uDCBE Backup</b>' +
+        '<div style="margin:6px 0 12px;color:#94a3b8;font-size:13px">Lista de seriale, serialele v\u0103zute, verific\u0103rile \u0219i set\u0103rile, \u00EEntr-un fi\u0219ier. ' +
+        'Dup\u0103 o reinstalare le aduci \u00EEnapoi cu \u201E\u00CEncarc\u0103 backup\u201D.</div>' +
+        '<button id="rf-bk-save" style="width:100%;padding:12px;border-radius:10px;border:0;background:#14b8a6;color:#04201d;font:600 15px system-ui;margin-bottom:8px">\u2B07\uFE0F Salveaz\u0103 backup (fi\u0219ier)</button>' +
+        '<button id="rf-bk-load" style="width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 15px system-ui;margin-bottom:8px">\u2B06\uFE0F \u00CEncarc\u0103 backup</button>' +
+        '<input id="rf-bk-file" type="file" accept=".json,application/json,text/plain" style="display:none">' +
+        '<div id="rf-bk-msg" style="min-height:18px;color:#5eead4;font-size:13px"></div>' +
+        '<button id="rf-bk-close" style="width:100%;padding:10px;border-radius:10px;border:0;background:#1f2937;color:#e5e7eb;font:600 14px system-ui;margin-top:6px">\u00CEnchide</button>';
+      document.body.appendChild(box);
+      var msg = box.querySelector('#rf-bk-msg');
+      box.querySelector('#rf-bk-close').addEventListener('click', function () { box.style.display = 'none'; });
+      box.querySelector('#rf-bk-save').addEventListener('click', function () {
+        var data = backupData();
+        if (window.RFBridge && /Android/i.test(navigator.userAgent)) {
+          window.RFBridge.postMessage('backup:save:' + data); // aplicatia te intreaba unde sa salveze fisierul
+          msg.textContent = 'Alege unde s\u0103 salvezi fi\u0219ierul\u2026';
+        } else {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+          a.download = 'ReelFren-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+          document.body.appendChild(a); a.click(); a.remove();
+          msg.textContent = 'Backup salvat (' + Math.round(data.length / 1024) + ' KB).';
+        }
+      });
+      var file = box.querySelector('#rf-bk-file');
+      box.querySelector('#rf-bk-load').addEventListener('click', function () { file.value = ''; file.click(); });
+      file.addEventListener('change', function () {
+        var f = file.files && file.files[0];
+        if (!f) return;
+        var r = new FileReader();
+        r.onload = function () {
+          try {
+            var n = restoreData(String(r.result));
+            msg.textContent = '\u2713 Backup \u00EEnc\u0103rcat: ' + n + ' seriale.';
+            if (catEl) { renderCatalog(); updateSeenButton(); catalogStatus(null); }
+            updateCatalogVisibility();
+          } catch (e) { msg.textContent = 'Fi\u0219ierul nu e un backup ReelFren valid.'; }
+        };
+        r.readAsText(f);
+      });
+    }
+    box.querySelector('#rf-bk-msg').textContent = '';
+    box.style.display = 'block';
+  }
+  window.__rfBackupData = backupData; window.__rfRestoreData = restoreData; // pentru teste
 
   function updateSeenButton() {
     if (!catEl) return;
