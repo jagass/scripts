@@ -204,8 +204,51 @@
     return '\uD83C\uDFAC Mod film: ' + (on ? 'Pornit' : 'Oprit');
   }
 
+  // --- un singur buton mic (☰) in colt; butoanele aplicatiei stau in lista lui, nu peste video ---
+  var tools = null, toolsList = null, toolsToggle = null, toolsOpenedByUser = false, toolsAutoOpened = false;
+  function ensureTools() {
+    if (tools) return;
+    var css = document.createElement('style');
+    css.textContent =
+      '#rf-tools{position:fixed;left:12px;top:64px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-start;gap:6px}' +
+      '#rf-tools-toggle{width:40px;height:40px;border-radius:20px;border:1px solid #334155;background:#0b1220b3;color:#e5e7eb;' +
+      'font:600 18px system-ui;opacity:.75;display:flex;align-items:center;justify-content:center;padding:0}' +
+      '#rf-tools-toggle.open{opacity:1;border-color:#2dd4bf}' +
+      '#rf-tools-toggle.alert{opacity:1;background:#b45309;border-color:#fbbf24;color:#fff}' +
+      '#rf-tools-list{display:none;flex-direction:column;align-items:stretch;gap:6px;max-width:80vw}' +
+      '#rf-tools.open #rf-tools-list{display:flex}' +
+      '#rf-tools-list>button{position:static!important;left:auto!important;top:auto!important;bottom:auto!important;' +
+      'transform:none!important;margin:0!important;opacity:1!important;text-align:left;max-width:80vw}' +
+      'html[data-rf-cinema] #rf-tools{display:none!important}';
+    document.head.appendChild(css);
+    tools = document.createElement('div');
+    tools.id = 'rf-tools';
+    toolsToggle = document.createElement('button');
+    toolsToggle.id = 'rf-tools-toggle';
+    toolsToggle.textContent = '\u2630';
+    toolsToggle.title = 'ReelFren';
+    toolsToggle.addEventListener('click', function (e) {
+      e.stopPropagation(); e.preventDefault();
+      toolsOpenedByUser = !tools.classList.contains('open');
+      tools.classList.toggle('open', toolsOpenedByUser);
+      toolsToggle.classList.toggle('open', toolsOpenedByUser);
+    }, true);
+    toolsList = document.createElement('div');
+    toolsList.id = 'rf-tools-list';
+    tools.appendChild(toolsToggle);
+    tools.appendChild(toolsList);
+    document.body.appendChild(tools);
+  }
+  // butonul ☰ se vede doar daca are ceva in lista
+  function toolsRefresh() {
+    if (!tools) return;
+    var any = Array.prototype.some.call(toolsList.children, function (b) { return b.style.display !== 'none'; });
+    tools.style.display = any ? '' : 'none';
+  }
+
   function ensureUi() {
     if (btn) return;
+    ensureTools();
     var css = document.createElement('style');
     css.textContent =
       '#rf-epcheck-btn{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:2147483645;padding:7px 14px;' +
@@ -245,7 +288,7 @@
       panel.style.display = 'block';
       if (!running) checkAll();
     }, true);
-    document.body.appendChild(btn);
+    toolsList.appendChild(btn);
 
     filmBtn = document.createElement('button');
     filmBtn.id = 'rf-film-btn';
@@ -255,7 +298,7 @@
       if (window.__rfToggleAutoNext) window.__rfToggleAutoNext();
       filmBtn.textContent = filmLabel();
     }, true);
-    document.body.appendChild(filmBtn);
+    toolsList.appendChild(filmBtn);
 
     incBtn = document.createElement('button');
     incBtn.id = 'rf-inc-btn';
@@ -269,7 +312,7 @@
       try { localStorage.setItem('rfEpStatus.v1', JSON.stringify(st)); } catch (err) {}
       incBtn.textContent = incLabel();
     }, true);
-    document.body.appendChild(incBtn);
+    toolsList.appendChild(incBtn);
 
     seenBtn = document.createElement('button');
     seenBtn.id = 'rf-seen-btn';
@@ -282,7 +325,7 @@
       try { localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (err) {}
       seenBtn.textContent = seenLabel();
     }, true);
-    document.body.appendChild(seenBtn);
+    toolsList.appendChild(seenBtn);
 
     panel = document.createElement('div');
     panel.id = 'rf-epcheck';
@@ -332,6 +375,7 @@
   }
 
   function refresh() {
+    setTimeout(toolsRefresh, 0);
     var onWatch = document.querySelector('video') && episodes().nums.length >= 2;
     var go = onWatch ? null : watchLink();
     if (onWatch || go) {
@@ -420,7 +464,7 @@
   }
   function adRefresh() {
     var onSeries = /^\/(drama|watch)\//.test(location.pathname);
-    if (!onSeries || !window.RFBridge) { if (adBtn) adBtn.style.display = 'none'; return; }
+    if (!onSeries || !window.RFBridge) { if (adBtn) adBtn.style.display = 'none'; toolsRefresh(); return; }
     if (!adBtn) {
       var css = document.createElement('style');
       css.textContent = '#rf-ad-btn{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:2147483645;padding:8px 14px;' +
@@ -435,11 +479,19 @@
         adBtn.textContent = '\u23F3 Re\u00EEncarc pagina\u2026';
         window.RFBridge.postMessage('adblock:toggle'); // aplicatia schimba setarea si reincarca pagina
       }, true);
-      document.body.appendChild(adBtn);
+      ensureTools();
+      toolsList.appendChild(adBtn);
     }
     var err = !window.__rfAdOff && !!siteError();
     adBtn.style.display = '';
     adBtn.classList.toggle('hl', err);
+    // video-ul nu porneste: ☰ devine portocaliu si lista se deschide (o data) cu butonul de reclame
+    toolsToggle.classList.toggle('alert', err);
+    if (err && !toolsAutoOpened && !toolsOpenedByUser) {
+      toolsAutoOpened = true;
+      tools.classList.add('open'); toolsToggle.classList.add('open');
+    }
+    toolsRefresh();
     var l = adLabel(err);
     if (adBtn.textContent !== l && adBtn.textContent.indexOf('\u23F3') !== 0) adBtn.textContent = l;
   }
