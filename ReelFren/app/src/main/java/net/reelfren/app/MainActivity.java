@@ -425,6 +425,13 @@ public class MainActivity extends Activity {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             if (HUB && ASSET_HOST.equals(request.getUrl().getHost())) return serveHubAsset(request.getUrl());
+            // robotul: fara video, fonturi si imagini (nu le vede nimeni), doar textul si listele
+            if (HUB && view == crawler && !request.isForMainFrame()) {
+                String path = request.getUrl().getPath() == null ? "" : request.getUrl().getPath().toLowerCase();
+                if (path.matches(".*\\.(mp4|m3u8|ts|webm|mkv|woff2?|ttf|otf|eot|png|jpe?g|webp|gif|avif|svg|ico)$")) {
+                    return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
+                }
+            }
             if (adblockOn && isAdHost(request.getUrl().getHost())) {
                 return new WebResourceResponse("text/plain", "utf-8",
                         new java.io.ByteArrayInputStream(new byte[0]));
@@ -979,6 +986,8 @@ public class MainActivity extends Activity {
             // robotul: o pagina ascunsa in spatele celorlalte, care trece pe rand prin site-uri
             crawler = createWebView();
             crawler.getSettings().setMediaPlaybackRequiresUserGesture(true);
+            // robotul nu are nevoie de imagini: paginile se incarca mult mai repede
+            crawler.getSettings().setBlockNetworkImage(true);
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                 WebViewCompat.addDocumentStartJavaScript(crawler, "window.__dfCrawl=1;", Collections.singleton("*"));
             }

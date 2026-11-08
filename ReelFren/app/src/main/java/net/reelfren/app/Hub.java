@@ -85,7 +85,7 @@ class Hub {
     private final Owner owner;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final ExecutorService hashPool = Executors.newFixedThreadPool(3);
+    private final ExecutorService hashPool = Executors.newFixedThreadPool(2);
     private final File file;
 
     final Map<String, Site> sites = new LinkedHashMap<>();
@@ -261,8 +261,8 @@ class Hub {
         pagesDone++;
         crawler.loadUrl(url);
         pushStatus(null);
-        // o pagina are cel mult 4 minute (derulare + paginile API); verificarea Cloudflare intra aici
-        ui.postDelayed(timeout, 240_000);
+        // o pagina are cel mult 2 minute (derulare + paginile API); verificarea Cloudflare intra aici
+        ui.postDelayed(timeout, 120_000);
     }
 
     boolean isCrawling() { return crawling; }
@@ -365,23 +365,20 @@ class Hub {
 
     // ------------------------------------------------------------------ grupare + lista pentru ecran
 
-    private int[] parent;
-
-    private int find(int x) {
+    private static int find(int[] parent, int x) {
         while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
         return x;
     }
 
-    private void union(int a, int b) {
-        a = find(a); b = find(b);
+    private static void union(int[] parent, int a, int b) {
+        a = find(parent, a); b = find(parent, b);
         if (a != b) parent[b] = a;
     }
 
     /** Posterele identice (dupa amprenta sau aceeasi adresa de imagine) intr-un singur film. */
-    private JSONArray buildGroups() {
-        List<Item> list = new ArrayList<>(items.values());
+    private static JSONArray buildGroups(List<Item> list, Map<String, Site> sites) {
         int n = list.size();
-        parent = new int[n];
+        int[] parent = new int[n];
         for (int i = 0; i < n; i++) parent[i] = i;
         Map<String, Integer> byImg = new HashMap<>();
         @SuppressWarnings("unchecked")
@@ -391,7 +388,7 @@ class Hub {
             Item it = list.get(i);
             String path = it.n;
             Integer prev = byImg.put(path, i);
-            if (prev != null) union(prev, i);
+            if (prev != null) union(parent, prev, i);
             if (it.hs != 1) continue;
             int bits = Long.bitCount(it.h);
             if (bits < 6 || bits > 58) continue; // imagine goala/uniforma: nu o comparam
@@ -402,14 +399,14 @@ class Hub {
                 if (bucket == null) { bucket = new ArrayList<>(); bands[b].put(key, bucket); }
                 for (int j = Math.max(0, bucket.size() - 400); j < bucket.size(); j++) {
                     int other = bucket.get(j);
-                    if (Long.bitCount(list.get(other).h ^ it.h) <= SAME_DIST) union(other, i);
+                    if (Long.bitCount(list.get(other).h ^ it.h) <= SAME_DIST) union(parent, other, i);
                 }
                 bucket.add(i);
             }
         }
         Map<Integer, List<Item>> groups = new LinkedHashMap<>();
         for (int i = 0; i < n; i++) {
-            int r = find(i);
+            int r = find(parent, i);
             List<Item> g = groups.get(r);
             if (g == null) { g = new ArrayList<>(); groups.put(r, g); }
             g.add(list.get(i));
@@ -454,7 +451,7 @@ class Hub {
         return out;
     }
 
-    private JSONArray sitesJson() {
+    private static JSONArray sitesJson(Map<String, Site> sites) {
         JSONArray a = new JSONArray();
         for (Site s : sites.values()) {
             try {
@@ -470,21 +467,39 @@ class Hub {
     private void schedulePush() {
         ui.removeCallbacks(push);
         // cat lucreaza robotul, lista se reimprospateaza rar (sa poti derula linistit)
-        long wait = Math.max(800, (crawling ? 12000 : 3000) - (System.currentTimeMillis() - lastPush));
+        long wait = Math.max(800, (crawling ? 15000 : 3000) - (System.currentTimeMillis() - lastPush));
         ui.postDelayed(push, wait);
     }
 
+    private final ExecutorService grouper = Executors.newSingleThreadExecutor();
+    private boolean grouping = false, regroup = false;
+
+    /** Lista pentru ecran se calculeaza in fundal (nu blocheaza aplicatia cand sunt multe filme). */
     void pushData(boolean statusToo) {
         ui.removeCallbacks(push);
         lastPush = System.currentTimeMillis();
-        try {
-            JSONObject o = new JSONObject();
-            o.put("groups", buildGroups());
-            o.put("sites", sitesJson());
-            o.put("items", items.size());
-            owner.toCatalog("hub:data:" + o);
-        } catch (Exception ignored) { }
-        pushStatus(null);
+        if (grouping) { regroup = true; return; }
+        grouping = true;
+        final List<Item> list = new ArrayList<>(items.values());
+        final Map<String, Site> ss = new LinkedHashMap<>(sites);
+        final int total = list.size();
+        grouper.execute(() -> {
+            String msg = null;
+            try {
+                JSONObject o = new JSONObject();
+                o.put("groups", buildGroups(list, ss));
+                o.put("sites", sitesJson(ss));
+                o.put("items", total);
+                msg = "hub:data:" + o;
+            } catch (Throwable ignored) { }
+            final String m = msg;
+            ui.post(() -> {
+                grouping = false;
+                if (m != null) owner.toCatalog(m);
+                pushStatus(null);
+                if (regroup) { regroup = false; schedulePush(); }
+            });
+        });
     }
 
     // ------------------------------------------------------------------ comenzi din lista

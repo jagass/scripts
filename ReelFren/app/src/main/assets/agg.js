@@ -154,7 +154,10 @@
     var s = im.getAttribute('data-src') || im.getAttribute('data-original') || im.getAttribute('data-lazy-src')
       || im.getAttribute('data-lazy') || im.currentSrc || im.src || '';
     if (!goodImgUrl(s) && im.srcset) s = im.srcset.split(',')[0].trim().split(' ')[0];
-    return goodImgUrl(s) ? abs(s) : '';
+    if (!goodImgUrl(s)) return '';
+    s = abs(s);
+    try { if (new URL(s).pathname.length < 5) return ''; } catch (e) { return ''; } // nu e o imagine (ex. adresa site-ului)
+    return s;
   }
   function cardOf(im) {
     var el = im, best = null;
@@ -196,8 +199,10 @@
       var w = im.naturalWidth, h = im.naturalHeight;
       if (!w || !h) { w = im.offsetWidth; h = im.offsetHeight; if (w < 40 || h < 40) w = h = 0; }
       if (w && h && (w < 60 || h < w * 1.05)) { if (im.naturalWidth) im.__dfSeen = 2; continue; } // nu e poster (iconita, banner lat)
+      if (/logo|icon|avatar|flag|banner|sprite|placeholder|loading/i.test(src)) { im.__dfSeen = 2; continue; }
       var card = cardOf(im);
       if (!card) continue;
+      if (card.closest('header,nav') || (!w && card.closest(NAV))) continue; // marime necunoscuta (imaginile oprite la robot) intr-un meniu: nu e film
       var key = normImg(src);
       var href = card.tagName === 'A' ? abs(card.getAttribute('href')) : '';
       if (href && (/^javascript:/i.test(href) || href.split('#')[0] === location.href.split('#')[0])) href = '';
@@ -280,13 +285,13 @@
   var crawlStarted = false;
   function crawl() {
     crawlStarted = true;
-    var rounds = 0, still = 0, lastCount = -1, apiDone = {};
+    var rounds = 0, still = 0, lastCount = -1, apiDone = {}, replaying = 0;
     var MORE = /^(load more|show more|more|view more|see more|mai mult|xem thêm|lihat lebih|muat lebih|ver más|cargar más|mais|carregar mais|더보기|もっと見る|加载更多|查看更多|next|›|»)$/i;
     function step() {
       if (done) return;
       if (/just a moment|attention required/i.test(document.title)) { // verificarea Cloudflare: asteptam
-        if (++rounds > 30) { done = true; report(true); return; }
-        return setTimeout(step, 1500);
+        if (++rounds > 20) { done = true; report(true); return; }
+        return setTimeout(step, 1000);
       }
       rounds++;
       window.scrollTo(0, document.documentElement.scrollHeight);
@@ -304,12 +309,13 @@
       var count = Object.keys(domItems).length + jsonCount;
       if (count === lastCount) still++; else { still = 0; lastCount = count; }
       report(false);
-      if (still >= 5 || rounds > 160) {
+      // gata cand nu mai apar filme noi (3 secunde) si nu mai citim pagini din API
+      if ((still >= 3 && !replaying) || rounds > 150) {
         done = true;
         setTimeout(function () { report(true); }, 300);
         return;
       }
-      setTimeout(step, 1600);
+      setTimeout(step, 1000);
     }
     // listele din API cu numar de pagina: cerem si paginile urmatoare (pana nu mai vin filme noi)
     function replayApis() {
@@ -322,8 +328,9 @@
         var lim = u.match(/[?&](?:limit|size|pageSize|page_size|per_page|count|num)=(\d+)/i);
         var stepN = isOffset ? (lim ? +lim[1] : 20) : 1;
         var n = +m[2], misses = 0, pagesRead = 0;
+        replaying++;
         (function next() {
-          if (pagesRead++ > 300 || misses >= 2) return;
+          if (pagesRead++ > 300 || misses >= 2) { replaying--; return; }
           n += stepN;
           var nu = u.replace(m[0], m[1] + n);
           apiDone[nu] = 1;
@@ -333,12 +340,12 @@
             var data; try { data = JSON.parse(t); } catch (e) { misses++; return next(); }
             scan(data, 0);
             if (jsonCount === before) misses++; else { misses = 0; dirty = true; }
-            setTimeout(next, 250);
-          }).catch(function () { misses++; setTimeout(next, 500); });
+            next();
+          }).catch(function () { misses++; setTimeout(next, 300); });
         })();
       });
     }
-    setTimeout(step, 2500);
+    setTimeout(step, 1200);
   }
 
   // ---------- 6. deschiderea unui film ales din lista (pagina fara link direct) ----------
