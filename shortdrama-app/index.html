@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Episod</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: sticky header + filter chips, then a short featured band, a "continue" rail and a 9:16 poster grid; a series opens in a full overlay with player left, episodes right. */
+:root {
+  --bg: #160d14;
+  --surface: #22141f;
+  --surface-2: #2f1c2a;
+  --fg: #f7ede9;
+  --muted: #b9a1ad;
+  --gold: #e9b96c;
+  --rose: #ff5d8f;
+  --line: rgba(255, 236, 240, .09);
+  --shadow: 0 18px 40px -18px rgba(0, 0, 0, .7);
+  --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fbf3f0; --surface: #ffffff; --surface-2: #f3e3e3; --fg: #2a1622;
+    --muted: #7a5f6e; --gold: #9c6610; --rose: #cf2459; --line: rgba(42, 22, 34, .11);
+    --shadow: 0 18px 40px -22px rgba(70, 20, 40, .45); color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fbf3f0; --surface: #ffffff; --surface-2: #f3e3e3; --fg: #2a1622;
+  --muted: #7a5f6e; --gold: #9c6610; --rose: #cf2459; --line: rgba(42, 22, 34, .11);
+  --shadow: 0 18px 40px -22px rgba(70, 20, 40, .45); color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  z-index: 10; background: var(--bg);
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.wrap {
+  max-width: 1240px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* Header */
+header.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.top-row { display: flex; align-items: center; gap: 14px; padding-block: 12px; }
+.logo {
+  font-family: var(--font-display); font-weight: 800; font-size: 24px; letter-spacing: -.02em;
+  display: flex; align-items: baseline; gap: 2px; white-space: nowrap;
+}
+.logo b { color: var(--rose); font-weight: 800; }
+.search {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px;
+}
+.search input { border: 0; background: none; outline: none; width: 100%; min-width: 0; }
+.search svg { flex: none; opacity: .6; }
+.icon-btn {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line);
+}
+.chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; border: 1px solid var(--line); background: transparent; border-radius: 999px;
+  padding: 6px 14px; font-size: 13.5px; font-weight: 500; color: var(--muted);
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; }
+.sep { flex: none; width: 1px; background: var(--line); margin: 4px 4px; }
+
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 36px; padding-block: 24px 64px; }
+main > * { min-width: 0; }
+.demo-note {
+  font-size: 13px; color: var(--muted); display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.demo-note .tag {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--gold); border: 1px solid currentColor; border-radius: 4px; padding: 1px 6px;
+}
+.demo-note button { background: none; border: 0; padding: 0; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+
+h2 {
+  font-family: var(--font-display); font-weight: 700; font-size: 21px; letter-spacing: -.01em;
+  margin: 0 0 14px; text-wrap: balance; display: flex; align-items: baseline; gap: 10px;
+}
+h2 small { font-family: var(--font-body); font-size: 13px; font-weight: 500; color: var(--muted); }
+
+/* Featured */
+.feature {
+  display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 28px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 28px;
+  position: relative; overflow: hidden;
+}
+.feature::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .35;
+  background: radial-gradient(600px 300px at 85% 30%, var(--feat-glow, var(--rose)), transparent 70%);
+}
+.feature > * { position: relative; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.feature h1 {
+  font-family: var(--font-display); font-weight: 800; font-size: clamp(30px, 5vw, 50px);
+  line-height: 1.02; letter-spacing: -.03em; margin: 8px 0 12px; text-wrap: balance;
+}
+.feature p { margin: 0 0 18px; color: var(--muted); max-width: 58ch; }
+.meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); align-items: center; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 999px;
+  padding: 11px 20px; font-weight: 600; background: var(--rose); color: #fff;
+}
+.btn.ghost { background: var(--surface-2); color: var(--fg); }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+
+/* Poster */
+.poster {
+  position: relative; aspect-ratio: 9 / 16; max-width: 100%; border-radius: 14px; overflow: hidden;
+  background: var(--poster-bg); color: #fff; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; justify-content: flex-end; padding: 12px;
+}
+.poster::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 40%, rgba(10, 4, 10, .78));
+}
+.poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.poster .ptitle {
+  position: relative; z-index: 1; font-family: var(--font-display); font-weight: 800;
+  font-size: 19px; line-height: 1.05; letter-spacing: -.02em; text-wrap: balance;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .4);
+}
+.poster .ornament {
+  position: absolute; top: 16%; left: 50%; translate: -50% 0; width: 62%; aspect-ratio: 1;
+  border-radius: 50%; background: var(--poster-orb); filter: blur(1px); opacity: .9;
+}
+.badge {
+  position: absolute; z-index: 1; top: 8px; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  background: rgba(15, 6, 14, .62); color: #fff; padding: 3px 8px; border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+.badge.left { left: 8px; display: inline-flex; align-items: center; gap: 5px; }
+.badge.right { right: 8px; }
+.pf { width: 7px; height: 7px; border-radius: 50%; }
+.pf.youtube { background: #ff3b3b; }
+.pf.dailymotion { background: #4f8bff; }
+
+/* Grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 22px 16px; }
+.card { display: grid; gap: 8px; background: none; border: 0; padding: 0; text-align: left; min-width: 0; }
+.card:hover .poster { translate: 0 -3px; }
+.poster { transition: translate .2s ease; }
+.card .sub { font-size: 12.5px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.card .sub span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fav-on { color: var(--rose); }
+.empty {
+  border: 1px dashed var(--line); border-radius: 14px; padding: 32px; text-align: center; color: var(--muted);
+}
+
+/* Continue rail */
+.rail { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(260px, 300px); gap: 14px; overflow-x: auto; padding-bottom: 6px; }
+.cont {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px; text-align: left;
+}
+.cont .poster { padding: 0; border-radius: 9px; box-shadow: none; }
+.cont .poster .ptitle, .cont .poster .badge { display: none; }
+.cont strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cont span { font-size: 12.5px; color: var(--muted); }
+.bar { height: 4px; border-radius: 4px; background: var(--surface-2); margin-top: 8px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--rose); }
+
+/* Series overlay */
+.overlay {
+  position: fixed; inset: 0; z-index: 20; background: var(--bg); overflow-y: auto;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.ov-head { display: flex; align-items: center; gap: 12px; padding-block: 14px; }
+.ov-head .crumb { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-body { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: 32px; padding-block: 8px 48px; align-items: start; }
+.player {
+  position: relative; aspect-ratio: 9 / 16; max-width: 100%; max-height: 78vh; margin: 0 auto;
+  border-radius: 18px; overflow: hidden; background: #000; box-shadow: var(--shadow); width: 100%;
+}
+.player.wide { aspect-ratio: 16 / 9; }
+.player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.mock { position: absolute; inset: 0; background: var(--poster-bg); color: #fff; display: grid; place-items: center; }
+.mock .ornament { position: absolute; top: 18%; left: 50%; translate: -50% 0; width: 60%; aspect-ratio: 1; border-radius: 50%; background: var(--poster-orb); }
+.mock .playbig {
+  position: relative; width: 74px; height: 74px; border-radius: 50%; border: 0;
+  background: rgba(255, 255, 255, .92); color: #1b0b16; display: grid; place-items: center;
+}
+.mock .caption {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 16px; z-index: 1;
+  background: linear-gradient(180deg, transparent, rgba(8, 3, 8, .85));
+}
+.mock .caption b { font-family: var(--font-display); font-size: 18px; display: block; }
+.mock .caption small { opacity: .8; font-size: 12px; }
+.mock .pbar { height: 3px; background: rgba(255, 255, 255, .25); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+.mock .pbar i { display: block; height: 100%; width: 0; background: #fff; }
+.mock .next {
+  position: absolute; inset: 0; z-index: 2; background: rgba(10, 4, 10, .72); display: grid; place-items: center;
+  text-align: center; padding: 24px;
+}
+.mock .next p { margin: 0 0 14px; }
+.mock .notice {
+  position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1; font-size: 11.5px; line-height: 1.35;
+  background: rgba(10, 4, 10, .55); border-radius: 8px; padding: 6px 9px; backdrop-filter: blur(6px);
+}
+.under-player { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; justify-content: center; }
+.under-player .btn { padding: 9px 16px; font-size: 14px; }
+
+.info h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(28px, 4vw, 42px); line-height: 1.04; letter-spacing: -.025em; margin: 6px 0 10px; text-wrap: balance; }
+.info p { color: var(--muted); max-width: 62ch; margin: 0 0 14px; }
+.eps-head { display: flex; justify-content: space-between; align-items: baseline; margin: 26px 0 12px; gap: 12px; flex-wrap: wrap; }
+.eps-head h3 { margin: 0; font-family: var(--font-display); font-size: 18px; }
+.eps-head select { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; color: var(--fg); }
+.eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; }
+.ep {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 10px 0 8px;
+  display: grid; gap: 1px; justify-items: center; font-variant-numeric: tabular-nums;
+}
+.ep b { font-family: var(--font-display); font-size: 17px; }
+.ep small { font-size: 11px; color: var(--muted); }
+.ep.seen { background: var(--surface-2); }
+.ep.seen small { color: var(--gold); }
+.ep[aria-current="true"] { border-color: var(--rose); box-shadow: inset 0 0 0 1px var(--rose); }
+
+/* Settings sheet */
+.sheet {
+  position: fixed; z-index: 30; right: 0; top: 0; bottom: 0; width: min(420px, 100%);
+  background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow);
+  overflow-y: auto; padding: calc(20px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) 20px;
+  display: grid; gap: 16px; align-content: start;
+}
+.sheet h2 { margin: 0; justify-content: space-between; }
+.sheet p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 13px; font-weight: 600; }
+.field input { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; width: 100%; }
+.status { font-size: 13px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.status.err { color: var(--rose); }
+.scrim { position: fixed; inset: 0; z-index: 25; background: rgba(0, 0, 0, .45); }
+
+@media (max-width: 760px) {
+  .feature { grid-template-columns: minmax(0, 1fr) 110px; padding: 20px; gap: 18px; }
+  .ov-body { grid-template-columns: minmax(0, 1fr); }
+  .player { max-height: 70vh; width: auto; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 18px 12px; }
+  .poster .ptitle { font-size: 16px; }
+  .logo span.full { display: none; }
+}
+@media (max-width: 420px) {
+  .feature { grid-template-columns: minmax(0, 1fr); }
+  .feature .poster { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="logo" aria-label="Episod">Episod<b>.</b></div>
+      <label class="search" for="q">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Caută seriale, canale…" autocomplete="off">
+      </label>
+      <button class="icon-btn" id="openSettings" aria-label="Surse și încărcare live" title="Surse și încărcare live">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>
+      </button>
+    </div>
+    <div class="chips" id="chips" role="toolbar" aria-label="Filtre"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="demo-note" id="demoNote"></div>
+  <section id="featureSec"></section>
+  <section id="contSec" hidden>
+    <h2>Continuă vizionarea</h2>
+    <div class="rail" id="rail"></div>
+  </section>
+  <section>
+    <h2 id="gridTitle">Toate serialele</h2>
+    <div class="grid" id="grid"></div>
+  </section>
+</main>
+
+<div class="overlay" id="overlay" role="dialog" aria-modal="true" aria-labelledby="ovTitle" hidden>
+  <div class="wrap">
+    <div class="ov-head">
+      <button class="icon-btn" id="closeOv" aria-label="Înapoi la catalog">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span class="crumb" id="crumb"></span>
+    </div>
+    <div class="ov-body">
+      <div>
+        <div class="player" id="player"></div>
+        <div class="under-player" id="underPlayer"></div>
+      </div>
+      <div class="info" id="info"></div>
+    </div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" aria-labelledby="sheetTitle" hidden>
+  <h2 id="sheetTitle">Surse de date
+    <button class="icon-btn" id="closeSheet" aria-label="Închide">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </h2>
+  <p>Aplicația nu salvează videoclipuri. Ia doar titlul, ID-ul și imaginea, apoi redă episodul prin playerul oficial al platformei.</p>
+  <div class="field">
+    <label for="term">Ce caut</label>
+    <input id="term" value="short drama full episode">
+  </div>
+  <div class="field">
+    <label for="ytKey">Cheie YouTube Data API v3</label>
+    <input id="ytKey" placeholder="AIza…" autocomplete="off">
+    <p>Se creează gratuit în Google Cloud Console. Rămâne doar în browserul tău.</p>
+  </div>
+  <div class="actions" style="margin-top:0">
+    <button class="btn" id="loadYt">Încarcă de pe YouTube</button>
+    <button class="btn ghost" id="loadDm">Încarcă de pe Dailymotion</button>
+  </div>
+  <button class="btn ghost" id="loadDemo" style="justify-self:start">Revino la datele demo</button>
+  <div class="status" id="status" hidden></div>
+</aside>
+
+<script>
+(() => {
+  /* ---------- storage helpers ---------- */
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  /* ---------- demo catalog (fictional, for the preview) ---------- */
+  const DEMO = [
+    { t: "Soția secretă a CEO-ului", g: "CEO", p: "youtube", c: "Drama Scurtă RO", n: 64, h: 345, y: 2026,
+      s: "O stagiară semnează un contract de căsătorie fără să știe că soțul ei de hârtie conduce compania la care lucrează." },
+    { t: "Răzbunarea moștenitoarei", g: "Răzbunare", p: "dailymotion", c: "Vertical Stories", n: 80, h: 10, y: 2026,
+      s: "Dată afară din casă de propria familie, Ana se întoarce după cinci ani ca proprietara grupului care îi poate ruina." },
+    { t: "Contract de nuntă", g: "Romance", p: "youtube", c: "MiniSeriale TV", n: 52, h: 320, y: 2025,
+      s: "Un an de căsnicie falsă, o singură regulă: fără sentimente. Regula ține până la episodul 9." },
+    { t: "Fiica pierdută a miliardarului", g: "Familie", p: "dailymotion", c: "Drama Box Clips", n: 70, h: 30, y: 2026,
+      s: "O ospătăriță află dintr-un test ADN că familia care o umilește la fiecare tură este, de fapt, a ei." },
+    { t: "Regina s-a întors", g: "Fantasy", p: "youtube", c: "Vertical Stories", n: 90, h: 275, y: 2026,
+      s: "Trădată și ucisă, împărăteasa se trezește în trupul ei de la 17 ani, cu toate amintirile intacte." },
+    { t: "Doctorul de la miezul nopții", g: "Romance", p: "youtube", c: "Drama Scurtă RO", n: 45, h: 200, y: 2025,
+      s: "O tură de noapte la urgențe, un chirurg arogant și o asistentă care nu se lasă intimidată." },
+    { t: "Gemenii despărțiți la naștere", g: "Familie", p: "dailymotion", c: "MiniSeriale TV", n: 60, h: 180, y: 2025,
+      s: "Două surori crescute în lumi opuse își schimbă locul pentru o săptămână. Nimeni nu observă, aproape." },
+    { t: "Divorț cu un milion", g: "Răzbunare", p: "youtube", c: "Drama Box Clips", n: 58, h: 355, y: 2026,
+      s: "Soțul i-a cerut divorțul crezând că pleacă cu mâna goală. Nu știa cine plătise de fapt pentru tot." },
+    { t: "Lupul alfa și promisiunea", g: "Fantasy", p: "dailymotion", c: "Vertical Stories", n: 75, h: 250, y: 2026,
+      s: "Respinsă de haită în noaptea împerecherii, Mira descoperă că e singura care poate rupe blestemul alfei." },
+    { t: "Bodyguardul meu e prinț", g: "CEO", p: "youtube", c: "MiniSeriale TV", n: 66, h: 40, y: 2025,
+      s: "O directoare angajează cel mai ieftin bodyguard din oraș. El are un secret și un tron care îl așteaptă." },
+    { t: "A doua șansă la 18 ani", g: "Fantasy", p: "youtube", c: "Drama Scurtă RO", n: 40, h: 160, y: 2026,
+      s: "Renăscută cu zece ani în urmă, Ioana are o singură țintă: să nu se mai mărite cu bărbatul care a distrus-o." },
+    { t: "Mama vitregă din umbră", g: "Familie", p: "dailymotion", c: "Drama Box Clips", n: 50, h: 300, y: 2025,
+      s: "Toată lumea o vede ca pe răufăcătoare. Doar fetița ei vitregă știe pe cine protejează, de fapt." }
+  ];
+
+  const slug = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const esc = s => String(s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  const PLATFORM = { youtube: "YouTube", dailymotion: "Dailymotion" };
+
+  const demoSeries = () => DEMO.map(d => ({
+    id: slug(d.t), title: d.t, genre: d.g, platform: d.p, channel: d.c, hue: d.h, year: d.y, synopsis: d.s,
+    demo: true,
+    episodes: Array.from({ length: d.n }, (_, i) => ({ n: i + 1, dur: 70 + ((i * 37 + d.h) % 110), videoId: null }))
+  }));
+
+  /* ---------- state ---------- */
+  const state = {
+    series: demoSeries(),
+    source: "demo",
+    platform: "all",
+    genre: "all",
+    favOnly: false,
+    q: "",
+    fav: new Set(store.get("episod.fav", [])),
+    hist: store.get("episod.hist", null),
+    open: null, ep: 1
+  };
+  // First visit: show how the "continue" rail looks with two example entries.
+  if (!state.hist) state.hist = {
+    "regina-s-a-intors": { ep: 12, at: Date.now() - 3600e3, example: true },
+    "contract-de-nunta": { ep: 31, at: Date.now() - 86400e3, example: true }
+  };
+
+  const posterVars = s => {
+    const h = s.hue;
+    return `--poster-bg: radial-gradient(120% 70% at 50% 10%, hsl(${h} 70% 46%), transparent 60%), linear-gradient(170deg, hsl(${h} 58% 30%), hsl(${(h + 30) % 360} 65% 10%));` +
+           `--poster-orb: radial-gradient(circle at 40% 35%, hsl(${(h + 20) % 360} 90% 78% / .85), hsl(${h} 80% 55% / .25) 55%, transparent 70%);`;
+  };
+  const posterHTML = (s, { badges = true } = {}) => `
+    <div class="poster" style="${posterVars(s)}">
+      ${s.thumb ? `<img src="${esc(s.thumb)}" alt="" loading="lazy">` : `<div class="ornament"></div>`}
+      ${badges ? `<span class="badge left"><i class="pf ${s.platform}"></i>${PLATFORM[s.platform]}</span>
+      <span class="badge right">${s.episodes.length} ep</span>` : ""}
+      ${s.thumb ? "" : `<div class="ptitle">${esc(s.title)}</div>`}
+    </div>`;
+
+  /* ---------- filtering ---------- */
+  const visible = () => {
+    const q = state.q.trim().toLowerCase();
+    return state.series.filter(s =>
+      (state.platform === "all" || s.platform === state.platform) &&
+      (state.genre === "all" || s.genre === state.genre) &&
+      (!state.favOnly || state.fav.has(s.id)) &&
+      (!q || s.title.toLowerCase().includes(q) || s.channel.toLowerCase().includes(q))
+    );
+  };
+
+  /* ---------- render ---------- */
+  const $ = id => document.getElementById(id);
+
+  function renderChips() {
+    const genres = [...new Set(state.series.map(s => s.genre))];
+    const chip = (kind, val, label, pressed, extra = "") =>
+      `<button class="chip" data-kind="${kind}" data-val="${esc(val)}" aria-pressed="${pressed}">${extra}${esc(label)}</button>`;
+    $("chips").innerHTML =
+      chip("platform", "all", "Toate platformele", state.platform === "all") +
+      chip("platform", "youtube", "YouTube", state.platform === "youtube", `<i class="dot" style="background:#ff3b3b"></i>`) +
+      chip("platform", "dailymotion", "Dailymotion", state.platform === "dailymotion", `<i class="dot" style="background:#4f8bff"></i>`) +
+      `<span class="sep"></span>` +
+      chip("fav", "1", "Favorite", state.favOnly, `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.5-9.4C1.2 8.3 3.4 5 6.8 5c2 0 3.6 1.1 4.6 2.6h1.2C13.6 6.1 15.2 5 17.2 5c3.4 0 5.6 3.3 4.3 6.6C19.5 16.4 12 21 12 21z"/></svg>`) +
+      `<span class="sep"></span>` +
+      chip("genre", "all", "Toate genurile", state.genre === "all") +
+      genres.map(g => chip("genre", g, g, state.genre === g)).join("");
+  }
+
+  function renderNote() {
+    $("demoNote").innerHTML = state.source === "demo"
+      ? `<span class="tag">Date demo</span> Serialele de mai jos sunt exemple inventate, ca să vezi interfața. <button id="noteLive">Încarcă date reale</button>`
+      : `<span class="tag">Live</span> ${state.series.length} seriale încărcate de pe ${PLATFORM[state.source]}, grupate automat după titlu.`;
+    const b = $("noteLive"); if (b) b.onclick = openSheet;
+  }
+
+  function renderFeature() {
+    const list = visible();
+    const s = list.find(x => x.episodes.length > 1) || list[0];
+    if (!s) { $("featureSec").innerHTML = ""; return; }
+    $("featureSec").innerHTML = `
+      <div class="feature" style="--feat-glow: hsl(${s.hue} 80% 50%)">
+        <div>
+          <div class="eyebrow">Recomandat azi · ${esc(s.genre)}</div>
+          <h1>${esc(s.title)}</h1>
+          <p>${esc(s.synopsis || "")}</p>
+          <div class="meta"><span><i class="pf ${s.platform}" style="display:inline-block;margin-right:6px"></i>${PLATFORM[s.platform]}</span><span>${esc(s.channel)}</span><span>${s.episodes.length} episoade</span></div>
+          <div class="actions">
+            <button class="btn" data-open="${esc(s.id)}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>
+              Vezi episodul 1
+            </button>
+            <button class="btn ghost" data-fav="${esc(s.id)}">${state.fav.has(s.id) ? "Scoate din favorite" : "Adaugă la favorite"}</button>
+          </div>
+        </div>
+        ${posterHTML(s)}
+      </div>`;
+  }
+
+  function renderContinue() {
+    const entries = Object.entries(state.hist)
+      .map(([id, h]) => ({ s: state.series.find(x => x.id === id), h }))
+      .filter(e => e.s).sort((a, b) => b.h.at - a.h.at).slice(0, 8);
+    $("contSec").hidden = !entries.length;
+    $("rail").innerHTML = entries.map(({ s, h }) => `
+      <button class="cont" data-open="${esc(s.id)}" data-ep="${h.ep}">
+        ${posterHTML(s, { badges: false })}
+        <div style="min-width:0">
+          <strong>${esc(s.title)}</strong>
+          <span>Episodul ${h.ep} din ${s.episodes.length}${h.example ? " · exemplu" : ""}</span>
+          <div class="bar"><i style="width:${Math.round(h.ep / s.episodes.length * 100)}%"></i></div>
+        </div>
+      </button>`).join("");
+  }
+
+  function renderGrid() {
+    const list = visible();
+    $("gridTitle").innerHTML = `${state.favOnly ? "Favoritele tale" : "Toate serialele"} <small>${list.length} ${list.length === 1 ? "serial" : "seriale"}</small>`;
+    $("grid").innerHTML = list.length ? list.map(s => `
+      <button class="card" data-open="${esc(s.id)}">
+        ${posterHTML(s)}
+        <div class="sub">
+          <span>${esc(s.channel)}</span>
+          <span class="${state.fav.has(s.id) ? "fav-on" : ""}">${state.fav.has(s.id) ? "♥" : esc(s.genre)}</span>
+        </div>
+      </button>`).join("")
+      : `<div class="empty" style="grid-column:1/-1">${state.favOnly ? "Nu ai încă favorite. Deschide un serial și apasă „Adaugă la favorite”." : "Niciun serial nu se potrivește filtrelor. Încearcă alt gen sau altă platformă."}</div>`;
+  }
+
+  const renderAll = () => { renderChips(); renderNote(); renderFeature(); renderContinue(); renderGrid(); };
+
+  /* ---------- series overlay + player ---------- */
+  let timer = null;
+  const stopTimer = () => { if (timer) { clearInterval(timer); timer = null; } };
+  const fmt = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+
+  function openSeries(id, ep) {
+    const s = state.series.find(x => x.id === id); if (!s) return;
+    state.open = s;
+    state.ep = Math.min(Math.max(1, ep || state.hist[id]?.ep || 1), s.episodes.length);
+    $("overlay").hidden = false;
+    document.body.style.overflow = "hidden";
+    $("overlay").scrollTop = 0;
+    renderSeries();
+    $("closeOv").focus();
+  }
+  function closeSeries() {
+    stopTimer();
+    $("player").innerHTML = "";
+    $("overlay").hidden = true;
+    document.body.style.overflow = "";
+    state.open = null;
+    renderContinue(); renderGrid(); renderFeature();
+  }
+
+  function markWatched(s, n) {
+    state.hist[s.id] = { ep: n, at: Date.now() };
+    const clean = Object.fromEntries(Object.entries(state.hist).filter(([, h]) => !h.example));
+    store.set("episod.hist", clean);
+  }
+
+  function renderSeries() {
+    const s = state.open, cur = s.episodes[state.ep - 1];
+    $("crumb").textContent = `${PLATFORM[s.platform]} · ${s.channel}`;
+    markWatched(s, state.ep);
+    renderPlayer(s, cur);
+
+    $("underPlayer").innerHTML = `
+      <button class="btn ghost" id="prevEp" ${state.ep <= 1 ? "disabled" : ""}>Episodul anterior</button>
+      <button class="btn" id="nextEp" ${state.ep >= s.episodes.length ? "disabled" : ""}>Episodul următor</button>`;
+    $("prevEp").onclick = () => go(state.ep - 1);
+    $("nextEp").onclick = () => go(state.ep + 1);
+
+    const seen = state.hist[s.id]?.ep || 0;
+    const per = 50, pages = Math.ceil(s.episodes.length / per);
+    const page = Math.floor((state.ep - 1) / per);
+    const eps = s.episodes.slice(page * per, page * per + per);
+    $("info").innerHTML = `
+      <div class="eyebrow">${esc(s.genre)}${s.year ? " · " + s.year : ""}</div>
+      <h1 id="ovTitle">${esc(s.title)}</h1>
+      <p>${esc(s.synopsis || "Serial grupat automat din videoclipurile canalului.")}</p>
+      <div class="meta">
+        <span><i class="pf ${s.platform}" style="display:inline-block;margin-right:6px"></i>${PLATFORM[s.platform]}</span>
+        <span>${esc(s.channel)}</span>
+        <span>${s.episodes.length} episoade</span>
+        ${cur.dur ? `<span>~${Math.round(s.episodes.reduce((a, e) => a + (e.dur || 0), 0) / 60)} min în total</span>` : ""}
+      </div>
+      <div class="actions">
+        <button class="btn ghost" id="favBtn">${state.fav.has(s.id) ? "Scoate din favorite" : "Adaugă la favorite"}</button>
+        ${cur.videoId ? `<a class="btn ghost" style="text-decoration:none" target="_blank" rel="noopener" href="${watchUrl(s.platform, cur.videoId)}">Deschide pe ${PLATFORM[s.platform]}</a>` : ""}
+      </div>
+      <div class="eps-head">
+        <h3>Episoade</h3>
+        ${pages > 1 ? `<select id="epPage" aria-label="Interval episoade">${Array.from({ length: pages }, (_, i) =>
+          `<option value="${i}" ${i === page ? "selected" : ""}>${i * per + 1}–${Math.min((i + 1) * per, s.episodes.length)}</option>`).join("")}</select>` : ""}
+      </div>
+      <div class="eps">
+        ${eps.map(e => `<button class="ep ${e.n < seen || e.n === seen && e.n !== state.ep ? "seen" : ""}" data-ep="${e.n}" aria-current="${e.n === state.ep}" aria-label="Episodul ${e.n}">
+          <b>${e.n}</b><small>${e.n === state.ep ? "acum" : e.n <= seen ? "văzut" : e.dur ? fmt(e.dur) : "EP"}</small></button>`).join("")}
+      </div>`;
+    $("favBtn").onclick = () => { toggleFav(s.id); renderSeries(); };
+    const sel = $("epPage"); if (sel) sel.onchange = () => go(+sel.value * per + 1);
+    $("info").querySelectorAll(".ep").forEach(b => b.onclick = () => go(+b.dataset.ep));
+  }
+
+  const watchUrl = (p, id) => p === "youtube" ? `https://www.youtube.com/watch?v=${encodeURIComponent(id)}` : `https://www.dailymotion.com/video/${encodeURIComponent(id)}`;
+  const embedUrl = (p, id) => p === "youtube"
+    ? `https://www.youtube.com/embed/${encodeURIComponent(id)}?autoplay=1&playsinline=1&rel=0`
+    : `https://www.dailymotion.com/embed/video/${encodeURIComponent(id)}?autoplay=1`;
+
+  function go(n) {
+    const s = state.open; if (!s) return;
+    state.ep = Math.min(Math.max(1, n), s.episodes.length);
+    renderSeries();
+  }
+
+  function renderPlayer(s, ep) {
+    stopTimer();
+    const el = $("player");
+    if (ep.videoId) {
+      // Real mode: the official player streams the episode from the platform.
+      el.classList.toggle("wide", !!s.wide);
+      el.innerHTML = `<iframe src="${embedUrl(s.platform, ep.videoId)}" title="${esc(s.title)} – episodul ${ep.n}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+      return;
+    }
+    // Demo mode: a stand-in that behaves like the real player (play, progress, autoplay next).
+    el.classList.remove("wide");
+    el.innerHTML = `
+      <div class="mock" style="${posterVars(s)}">
+        <div class="ornament"></div>
+        <div class="notice">Previzualizare. În aplicația reală aici rulează playerul ${PLATFORM[s.platform]}.</div>
+        <button class="playbig" id="mockPlay" aria-label="Pornește episodul ${ep.n}">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4v16l13-8z"/></svg>
+        </button>
+        <div class="caption">
+          <b>Episodul ${ep.n}</b>
+          <small id="mockTime">0:00 / ${fmt(ep.dur)}</small>
+          <div class="pbar"><i id="mockBar"></i></div>
+        </div>
+      </div>`;
+    $("mockPlay").onclick = () => playMock(s, ep);
+  }
+
+  function playMock(s, ep) {
+    const btn = $("mockPlay"); if (btn) btn.hidden = true;
+    let t = 0; const step = ep.dur / 60; // 6 seconds for a whole episode in the preview
+    timer = setInterval(() => {
+      t = Math.min(ep.dur, t + step);
+      const bar = $("mockBar"), time = $("mockTime");
+      if (!bar) return stopTimer();
+      bar.style.width = (t / ep.dur * 100) + "%";
+      time.textContent = `${fmt(Math.round(t))} / ${fmt(ep.dur)}`;
+      if (t >= ep.dur) { stopTimer(); showNext(s, ep); }
+    }, 100);
+  }
+
+  function showNext(s, ep) {
+    if (ep.n >= s.episodes.length) return;
+    const mock = document.querySelector(".mock"); if (!mock) return;
+    let left = 5;
+    const box = document.createElement("div");
+    box.className = "next";
+    box.innerHTML = `<div><p>Episodul ${ep.n + 1} începe în <b id="cd">${left}</b> s</p>
+      <div class="actions" style="justify-content:center;margin:0">
+        <button class="btn" id="nowNext">Pornește acum</button>
+        <button class="btn ghost" id="cancelNext">Rămân aici</button></div></div>`;
+    mock.appendChild(box);
+    timer = setInterval(() => {
+      left -= 1; const cd = $("cd"); if (cd) cd.textContent = left;
+      if (left <= 0) { stopTimer(); go(ep.n + 1); setTimeout(() => { const p = $("mockPlay"); if (p) p.click(); }, 50); }
+    }, 1000);
+    $("nowNext").onclick = () => { stopTimer(); go(ep.n + 1); setTimeout(() => { const p = $("mockPlay"); if (p) p.click(); }, 50); };
+    $("cancelNext").onclick = () => { stopTimer(); box.remove(); };
+  }
+
+  function toggleFav(id) {
+    state.fav.has(id) ? state.fav.delete(id) : state.fav.add(id);
+    store.set("episod.fav", [...state.fav]);
+  }
+
+  /* ---------- live loading + grouping episodes into series ---------- */
+  const EP_RE = /(?:\b(?:ep|eps|episode|episodul|episodio|épisode|part|partea|pt)\.?\s*#?\s*(\d{1,4}))|(?:第\s*(\d{1,4})\s*[集话話])/i;
+  const NOISE_RE = /\s*[\[(【].*?(?:full|hd|eng|sub|dub|drama|short|1080p).*?[\])】]\s*|#\S+|\b(full (?:movie|episode|episodes|drama)|short drama|mini ?drama|eng ?sub|english sub(?:titles)?|hd|new)\b/gi;
+
+  function guessGenre(title) {
+    const t = title.toLowerCase();
+    if (/\b(ceo|billionaire|boss|tycoon|president|miliardar)\b/.test(t)) return "CEO";
+    if (/\b(revenge|betray|divorce|răzbunare|razbunare)\b/.test(t)) return "Răzbunare";
+    if (/\b(alpha|wolf|werewolf|vampire|reborn|rebirth|queen|king|empress|dragon)\b/.test(t)) return "Fantasy";
+    if (/\b(mother|mom|daughter|son|family|twins|sister|mama)\b/.test(t)) return "Familie";
+    if (/\b(love|wife|husband|marriage|bride|romance|contract)\b/.test(t)) return "Romance";
+    return "Altele";
+  }
+
+  function hueOf(str) { let h = 0; for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }
+
+  // items: [{ videoId, title, channel, thumb, dur }]
+  function groupIntoSeries(items, platform) {
+    const map = new Map();
+    for (const it of items) {
+      const m = it.title.match(EP_RE);
+      const n = m ? parseInt(m[1] || m[2], 10) : 1;
+      let name = (m ? it.title.replace(m[0], " ") : it.title).replace(NOISE_RE, " ")
+        .replace(/[|｜:–—\-•]+\s*$/g, "").replace(/^\s*[|｜:–—\-•]+/g, "").replace(/\s{2,}/g, " ").trim();
+      if (!name) name = it.title;
+      const key = platform + ":" + slug(it.channel) + ":" + slug(name);
+      if (!map.has(key)) map.set(key, {
+        id: key, title: name, genre: guessGenre(it.title), platform, channel: it.channel, hue: hueOf(name),
+        thumb: it.thumb, wide: true, episodes: []
+      });
+      const s = map.get(key);
+      if (!s.episodes.some(e => e.n === n)) s.episodes.push({ n, videoId: it.videoId, dur: it.dur || 0, title: it.title });
+    }
+    return [...map.values()].map(s => {
+      s.episodes.sort((a, b) => a.n - b.n);
+      s.episodes = s.episodes.map((e, i) => ({ ...e, n: i + 1, srcN: e.n })); // renumber so gaps don't break navigation
+      return s;
+    }).sort((a, b) => b.episodes.length - a.episodes.length);
+  }
+
+  async function loadYouTube() {
+    const key = $("ytKey").value.trim();
+    if (!key) return status("Adaugă cheia YouTube Data API ca să încarci de pe YouTube.", true);
+    store.set("episod.ytKey", key);
+    status("Caut pe YouTube…");
+    const items = []; let pageToken = "";
+    for (let i = 0; i < 2; i++) { // 2 pages = 100 results = 200 quota units
+      const u = new URL("https://www.googleapis.com/youtube/v3/search");
+      u.search = new URLSearchParams({ part: "snippet", type: "video", maxResults: "50", q: $("term").value, key, ...(pageToken && { pageToken }) });
+      const r = await fetch(u); const j = await r.json();
+      if (!r.ok) throw new Error(j.error?.message || `YouTube a răspuns cu ${r.status}`);
+      for (const v of j.items || []) items.push({
+        videoId: v.id.videoId, title: decodeEntities(v.snippet.title), channel: v.snippet.channelTitle,
+        thumb: v.snippet.thumbnails?.high?.url || v.snippet.thumbnails?.medium?.url
+      });
+      pageToken = j.nextPageToken; if (!pageToken) break;
+    }
+    setLive(groupIntoSeries(items, "youtube"), "youtube", items.length);
+  }
+
+  async function loadDailymotion() {
+    status("Caut pe Dailymotion…");
+    const u = new URL("https://api.dailymotion.com/videos");
+    u.search = new URLSearchParams({ search: $("term").value, fields: "id,title,thumbnail_360_url,owner.screenname,duration", limit: "100", sort: "relevance" });
+    const r = await fetch(u); const j = await r.json();
+    if (!r.ok) throw new Error(j.error?.message || `Dailymotion a răspuns cu ${r.status}`);
+    const items = (j.list || []).map(v => ({ videoId: v.id, title: v.title, channel: v["owner.screenname"] || "Dailymotion", thumb: v.thumbnail_360_url, dur: v.duration }));
+    setLive(groupIntoSeries(items, "dailymotion"), "dailymotion", items.length);
+  }
+
+  function decodeEntities(s) { const t = document.createElement("textarea"); t.innerHTML = s; return t.value; }
+
+  function setLive(series, source, count) {
+    if (!series.length) return status("Căutarea nu a întors niciun videoclip. Încearcă alt termen.", true);
+    state.series = series; state.source = source; state.genre = "all"; state.platform = "all";
+    status(`Gata: ${count} videoclipuri grupate în ${series.length} seriale.`);
+    renderAll();
+  }
+
+  function status(msg, err) { const el = $("status"); el.hidden = false; el.textContent = msg; el.classList.toggle("err", !!err); }
+
+  const runLoad = fn => async () => {
+    try { await fn(); }
+    catch (e) {
+      status(`Nu am putut încărca datele: ${e.message || e}. Dacă vezi pagina în previzualizarea Claude, deschide fișierul index.html local sau pe GitHub Pages, unde accesul la API e permis.`, true);
+    }
+  };
+
+  /* ---------- settings sheet ---------- */
+  function openSheet() { $("sheet").hidden = false; $("scrim").hidden = false; $("ytKey").value = store.get("episod.ytKey", ""); $("term").focus(); }
+  function closeSheet() { $("sheet").hidden = true; $("scrim").hidden = true; }
+
+  /* ---------- events ---------- */
+  document.addEventListener("click", e => {
+    const chip = e.target.closest(".chip");
+    if (chip) {
+      const { kind, val } = chip.dataset;
+      if (kind === "platform") state.platform = val;
+      if (kind === "genre") state.genre = val;
+      if (kind === "fav") state.favOnly = !state.favOnly;
+      renderChips(); renderFeature(); renderGrid(); return;
+    }
+    const fav = e.target.closest("[data-fav]");
+    if (fav) { toggleFav(fav.dataset.fav); renderFeature(); renderGrid(); return; }
+    const op = e.target.closest("[data-open]");
+    if (op) openSeries(op.dataset.open, op.dataset.ep ? +op.dataset.ep : (op.closest(".feature") ? 1 : undefined));
+  });
+  $("q").addEventListener("input", e => { state.q = e.target.value; renderFeature(); renderGrid(); });
+  $("closeOv").onclick = closeSeries;
+  $("openSettings").onclick = openSheet;
+  $("closeSheet").onclick = closeSheet;
+  $("scrim").onclick = closeSheet;
+  $("loadYt").onclick = runLoad(loadYouTube);
+  $("loadDm").onclick = runLoad(loadDailymotion);
+  $("loadDemo").onclick = () => { state.series = demoSeries(); state.source = "demo"; state.genre = "all"; status("Am revenit la datele demo."); renderAll(); };
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    if (!$("sheet").hidden) closeSheet(); else if (!$("overlay").hidden) closeSeries();
+  });
+
+  renderAll();
+})();
+</script>
+</body>
+</html>
