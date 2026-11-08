@@ -540,7 +540,8 @@ public class MainActivity extends Activity {
         }
         if (view != webView) return; // mesajele paginilor din spate nu conteaza
         if (data.startsWith("mode:")) {
-            cinemaLight = data.equals("mode:light");
+            // "none" = pe pagina nu e niciun video: ca la modul usor, atingerile ajung la pagina
+            cinemaLight = data.equals("mode:light") || data.equals("mode:none");
             if (cinema) tapCatcher.setVisibility(cinemaLight ? View.GONE : View.VISIBLE);
         } else if (data.equals("auto:next")) {
             // Mod film: episodul s-a terminat si site-ul nu a trecut singur la urmatorul

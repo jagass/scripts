@@ -180,7 +180,13 @@
 
   function decideMode() {
     var v = bestVideo();
-    if (!v) { mode = isTop ? 'full' : null; return; }
+    if (!v) {
+      // niciun video pe pagina (ex. site-ul arata "Video cannot be loaded"): nu acoperim nimic si lasam
+      // atingerile sa ajunga la pagina (Reload, butonul de reclame); reincercam cand apare un video
+      if (isTop && bestIframe()) { mode = 'full'; send('mode:full'); return; }
+      if (isTop) { mode = 'none'; send('mode:none'); }
+      return;
+    }
     var big = visibleArea(v) >= 0.6 * innerWidth * innerHeight;
     mode = big ? 'light' : 'full';
     send('mode:' + mode);
@@ -201,7 +207,9 @@
   function tick() {
     if (!cinema) return;
     ensureCss();
+    if (mode === 'none' && bestVideo()) mode = null; // a aparut video-ul: alegem modul potrivit
     if (mode === null) decideMode();
+    if (mode === 'none') { document.documentElement.removeAttribute('data-rf-cinema'); return; }
     if (mode && document.documentElement.getAttribute('data-rf-cinema') !== mode) document.documentElement.setAttribute('data-rf-cinema', mode);
     var v = bestVideo();
     var t = v || (isTop ? bestIframe() : null);
@@ -223,7 +231,7 @@
   var rafPending = false;
   function quickFix() {
     rafPending = false;
-    if (!cinema) return;
+    if (!cinema || mode === null || mode === 'none') return; // modul se alege in tick()
     var v = bestVideo();
     setTarget(v || (isTop ? bestIframe() : null));
     hideOthers();
