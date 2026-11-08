@@ -65,6 +65,11 @@
     <input id="minep" type="number" min="0" placeholder="min EP" inputmode="numeric">
     <select id="site"><option value="">Toate site-urile</option></select>
   </div>
+  <div class="row">
+    <button id="fAi">🤖 Doar AI</button>
+    <button id="fAsia">🚫 Asiatice</button>
+    <button id="fAnime">🚫 Anime</button>
+  </div>
   <div id="status"></div>
 </header>
 <div id="grid"></div>
@@ -117,7 +122,7 @@
     crawling = !!s.crawling;
     $('crawl').textContent = crawling ? '⏹ Oprește' : '🔄 Caută filme';
     $('crawl').className = crawling ? 'on' : 'go';
-    var t = groups.length + ' filme (' + totalItems + ' din toate site-urile)';
+    var t = (groups.length - hiddenByPrefs) + ' filme afișate din ' + groups.length + ' (' + totalItems + ' de pe toate site-urile)';
     if (crawling) t = '⏳ ' + s.host + ' · pagina ' + s.done + ' (încă ' + s.left + ') · +' + s.added + ' noi · ' + t;
     else if (s.text) t = s.text + ' · ' + t;
     if (s.hashing > 0) t += ' · compar postere: ' + s.hashing;
@@ -132,11 +137,39 @@
     sel.value = cur;
   }
 
+  // ---- filtrele dupa etichetele site-urilor si titlu (AI / fara asiatice / fara anime)
+  var prefs = loadSet('df.filters');
+  if (prefs.ai === undefined) prefs = { ai: 1, asia: 1, anime: 1 }; // cum ai cerut: doar AI, fara asiatice si anime
+  function savePrefs() { lsSet('df.filters', JSON.stringify(prefs)); }
+  var AI_TAG = /(^|[^a-z])(ai|aigc|a\.i\.)([^a-z]|$)|ai[- ]?(drama|film|movie|series|short|generated|version|video)|artificial intelligence|人工智能|ai短剧|ai剧|ai漫/i;
+  var AI_TITLE = /^\s*[\[(【]?\s*ai\s*[\])】:|-]|[\[(【]\s*ai\s*[\])】]|\bai[- ]?(drama|film|movie|series|version|short|generated)\b|\(ai\)$/i;
+  var ANIME = /anime|animation|animated|cartoon|动漫|动画|漫剧|manhua|donghua|manga|アニメ|애니|\b[23]d\b/i;
+  var ASIA_TAG = /chin|korea|japan|thai|asia|vietnam|indones|filip|taiwan|hong ?kong|malay|c-?drama|k-?drama|j-?drama|华语|中文|国语|国产|普通话|mandarin|cantonese|日本|한국|ไทย/i;
+  var ASIA_TITLE = new RegExp('\\b(mr|mrs|miss|president|ceo|young master|master|madam|lady|boss|general|prince|princess|emperor|empress|consort|young lord|director|chairman)\\.?\\s+'
+    + '(huo|jiang|lu|gu|xiao|shen|ye|qin|mo|li|wang|zhang|chen|lin|su|fu|bo|xu|song|tang|han|feng|yan|ji|qi|zhou|wen|chu|xie|he|ling|si|nan|bai|yun|leng|long|ou|sheng|zhan|jin|tan|yu|zhao|cheng|meng|ning|xia|qiao|choi|yoon|tanaka|sato)\\b'
+    + '|\\b(emperor|empress|concubine|imperial|dynasty|palace|cultivat\\w*|immortal|sect|martial|kung ?fu|wuxia|xianxia|chaebol|oppa|samurai|shogun|seventies|1970s|1980s)\\b', 'i');
+  function gtext(g) { return (g.tg || '') + ' ' + g.ti + ' ' + (g.al || []).map(function (a) { return a[3]; }).join(' '); }
+  function isAi(g) { return AI_TAG.test(g.tg || '') || AI_TITLE.test(g.ti) || (g.al || []).some(function (a) { return AI_TITLE.test(a[3]); }); }
+  function isAnime(g) { return ANIME.test(gtext(g)); }
+  function isAsian(g) { return g.ho === 'dramafren.org' || ASIA_TAG.test(g.tg || '') || ASIA_TITLE.test(gtext(g)); }
+  function showPrefs() {
+    $('fAi').className = prefs.ai ? 'on' : '';
+    $('fAsia').className = prefs.asia ? 'on' : '';
+    $('fAnime').className = prefs.anime ? 'on' : '';
+  }
+  showPrefs();
+  ['ai', 'asia', 'anime'].forEach(function (k) {
+    $(k === 'ai' ? 'fAi' : k === 'asia' ? 'fAsia' : 'fAnime').onclick = function () { prefs[k] = prefs[k] ? 0 : 1; savePrefs(); showPrefs(); apply(false); };
+  });
+  var hiddenByPrefs = 0;
+
   function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
   function apply(keepScroll) {
     var q = norm($('q').value.trim()), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
     var words = q ? q.split(/\s+/) : [];
+    hiddenByPrefs = 0;
     filtered = groups.filter(function (g) {
+      if ((prefs.ai && !isAi(g)) || (prefs.anime && isAnime(g)) || (prefs.asia && isAsian(g))) { hiddenByPrefs++; return false; }
       var w = marked(watch, g), s = marked(seen, g);
       if (view === 'watch') { if (!w || s) return false; }
       else if (view === 'seen') { if (!s) return false; }
@@ -159,6 +192,10 @@
     var e = $('empty');
     if (!groups.length) {
       e.innerHTML = 'Lista e goală.<br>Apasă <b>🔄 Caută filme</b>: aplicația trece singură prin idrama și toate site-urile legate și adună filmele aici.<br><br>Dacă un site cere verificare (Cloudflare), deschide-l o dată din <b>🌐 Site-uri</b>, apoi caută din nou.';
+      e.style.display = '';
+    } else if (!filtered.length && prefs.ai && view === 'all' && !q && !min && !site) {
+      e.innerHTML = 'Niciun film marcat ca <b>AI</b> încă (din ' + groups.length + ').<br>Aplicația recunoaște filmele AI după eticheta pusă de site (ex. „AI Drama”) sau după titlu.<br><br>'
+        + 'Dacă știi că un site are filme AI, apasă <b>⋯ → Diagnostic → Copiază</b> și trimite-mi textul: văd ce etichete folosește site-ul și repar recunoașterea.';
       e.style.display = '';
     } else if (!filtered.length) {
       e.textContent = view === 'watch' ? 'Nu ai niciun film la „De văzut”. Apasă 📌 pe un film.' : view === 'seen' ? 'Niciun film văzut încă.' : 'Niciun film nu se potrivește.';
