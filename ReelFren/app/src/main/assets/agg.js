@@ -412,6 +412,14 @@
     var o = window.__dfSearch, q = String(o.q || '');
     var mark = 'dfsearch_' + o.tok, rounds = 0, still = 0, last = -1, submitted = false;
     try { submitted = !!sessionStorage.getItem(mark); } catch (e) { }
+    // filmele care erau deja pe pagina inainte de cautare (pe site-urile fara pagina de rezultate) nu sunt rezultate
+    var baseline = null;
+    function hits() {
+      var h = [];
+      for (var k in domItems) if (!baseline || !baseline[k]) h.push(k);
+      for (var j in jsonItems) if (!domItems[j] && (!baseline || !baseline[j])) h.push(j);
+      return h.slice(0, 300);
+    }
     function urlHasQ() {
       var u;
       try { u = decodeURIComponent(location.href.replace(/\+/g, ' ')); } catch (e) { u = location.href; }
@@ -429,7 +437,7 @@
     function finish() {
       if (done) return;
       done = true;
-      extra = { search: q, searchUrl: urlHasQ() ? learnUrl() : '' };
+      extra = { search: q, searchUrl: urlHasQ() ? learnUrl() : '', hits: hits() };
       report(true);
     }
     function step() {
@@ -437,7 +445,11 @@
       if (/just a moment|attention required/i.test(document.title)) { if (++rounds > 20) return finish(); return setTimeout(step, 1000); }
       rounds++;
       if (!submitted && !urlHasQ()) {
-        if (rounds > 8) return finish();              // pagina nu are cautare
+        if (rounds > 8) { extra = { search: q, hits: [] }; done = true; report(true); return; } // pagina nu are cautare
+        harvestDom();
+        baseline = {};
+        for (var bk in domItems) baseline[bk] = 1;
+        for (var bj in jsonItems) baseline[bj] = 1;
         if (siteSearch(q)) {
           submitted = true;
           try { sessionStorage.setItem(mark, '1'); } catch (e) { }
@@ -448,6 +460,7 @@
       harvestDom();
       var c = Object.keys(domItems).length + jsonCount;
       if (c === last) still++; else { still = 0; last = c; }
+      extra = { search: q, hits: hits() };
       report(false);
       if (still >= 3 || rounds > 25) return finish();
       if (rounds % 2 === 0) window.scrollTo(0, document.documentElement.scrollHeight);

@@ -98,6 +98,7 @@
       if (d.indexOf('hub:data:') === 0) {
         var o = JSON.parse(d.slice(9));
         groups = o.groups || []; sites = o.sites || []; totalItems = o.items || 0;
+        hitQ = o.hq || ''; hitSet = {}; (o.hits || []).forEach(function (k) { hitSet[k] = 1; });
         fillSites(); apply(true);
       } else if (d.indexOf('hub:status:') === 0) {
         status(JSON.parse(d.slice(11)));
@@ -134,10 +135,24 @@
     sel.value = cur;
   }
 
+  function titleScore(g, words) {
+    var tt = norm(g.ti), n = 0;
+    for (var i = 0; i < words.length; i++) if (wordIn(tt, words[i])) n++;
+    return n;
+  }
   function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  var hitQ = '', hitSet = {};
+  function isHit(g) { for (var i = 0; i < g.ks.length; i++) if (hitSet[g.ks[i]]) return true; return false; }
+  // un cuvant se potriveste si cu mici greseli de scriere (ex. "succesor" ~ "successor")
+  function wordIn(tt, w) {
+    if (tt.indexOf(w) >= 0) return true;
+    if (w.length < 5) return false;
+    return tt.indexOf(w.slice(0, Math.max(4, w.length - 2))) >= 0;
+  }
   function apply(keepScroll) {
     var q = norm($('q').value.trim()), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
     var words = q ? q.split(/\s+/) : [];
+    var useHits = q && hitQ && norm(hitQ) === q;
     filtered = groups.filter(function (g) {
       var w = marked(watch, g), s = marked(seen, g);
       if (view === 'watch') { if (!w || s) return false; }
@@ -145,15 +160,24 @@
       else if (s) return false;
       if (min && g.ep < min) return false;
       if (site && g.ho !== site && !(g.al || []).some(function (a) { return a[1] === site; })) return false;
-      if (words.length) {
+      g._hit = useHits && isHit(g);
+      if (words.length && !g._hit) {
         var tt = norm(g.ti + ' ' + (g.al || []).map(function (a) { return a[3]; }).join(' '));
-        for (var i = 0; i < words.length; i++) if (tt.indexOf(words[i]) < 0) return false;
+        for (var i = 0; i < words.length; i++) if (!wordIn(tt, words[i])) return false;
       }
       return true;
     });
-    filtered.sort(sort === 'ep' ? function (a, b) { return b.ep - a.ep || b.t - a.t; }
+    var cmp = sort === 'ep' ? function (a, b) { return b.ep - a.ep || b.t - a.t; }
       : sort === 'new' ? function (a, b) { return b.t - a.t; }
-      : function (a, b) { return a.ti.localeCompare(b.ti); });
+      : function (a, b) { return a.ti.localeCompare(b.ti); };
+    // la o cautare: intai filmele care se potrivesc cu titlul, apoi celelalte rezultate de pe site-uri
+    filtered.sort(function (a, b) {
+      if (words.length) {
+        var sa = titleScore(a, words), sb = titleScore(b, words);
+        if (sa !== sb) return sb - sa;
+      }
+      return cmp(a, b);
+    });
     var keep = keepScroll ? Math.max(shown, PAGE) : PAGE;
     $('grid').innerHTML = '';
     shown = 0;

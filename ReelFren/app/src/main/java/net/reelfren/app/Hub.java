@@ -177,6 +177,9 @@ class Hub {
     private final ArrayDeque<Job> searchQueue = new ArrayDeque<>();
     private final Map<String, Integer> deepEmpty = new HashMap<>(); // site -> cautari fara niciun film
     private String searchQ = "", searchTok = "";
+    /** filmele gasite de site-uri la ultima cautare (afisate chiar daca titlul nu contine exact cuvintele) */
+    private final Set<String> searchHits = new HashSet<>();
+    private String hitsQ = "";
     private boolean searching = false, deep = false;
     private int searchTotal = 0, searchDone = 0, searchFound = 0;
 
@@ -192,6 +195,8 @@ class Hub {
         if (searching && !deep && q.equalsIgnoreCase(searchQ)) return;
         cancelSearch();
         searchQ = q;
+        hitsQ = q;
+        searchHits.clear();
         for (Site s : searchableSites()) searchQueue.add(new Job(s, q));
         startSearch(false);
     }
@@ -388,6 +393,12 @@ class Hub {
         // orice film primit = site-ul merge (verificarea a trecut)
         if (its != null && its.length() > 0 && !"ok".equals(site.status)) { site.status = "ok"; changed = true; }
         Job job = fromSearch ? searcherJob.get(from) : null;
+        JSONArray hs = r.optJSONArray("hits");
+        if (job != null && hs != null && !deep && job.q.equals(hitsQ)) {
+            int before = searchHits.size();
+            for (int i = 0; i < hs.length(); i++) searchHits.add(host + "|" + hs.optString(i));
+            if (searchHits.size() != before) changed = true;
+        }
         if (fromSearch && r.optBoolean("done") && job != null && host.equals(job.site.host)) {
             String su = r.optString("searchUrl");
             if (!su.isEmpty() && su.contains("{q}") && hostOf(su).equals(host) && !su.equals(site.searchUrl)) {
@@ -705,6 +716,8 @@ class Hub {
         grouping = true;
         final List<Item> list = new ArrayList<>(items.values());
         final Map<String, Site> ss = new LinkedHashMap<>(sites);
+        final List<String> hits = new ArrayList<>(searchHits);
+        final String hq = hitsQ;
         final int total = list.size();
         grouper.execute(() -> {
             String msg = null;
@@ -713,6 +726,8 @@ class Hub {
                 o.put("groups", buildGroups(list, ss));
                 o.put("sites", sitesJson(ss));
                 o.put("items", total);
+                o.put("hq", hq);
+                o.put("hits", new JSONArray(hits));
                 msg = "hub:data:" + o;
             } catch (Throwable ignored) { }
             final String m = msg;
