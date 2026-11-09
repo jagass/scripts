@@ -58,6 +58,9 @@ public class MainActivity extends Activity {
     private Hub hub;
     private WebView crawler;
     private String aggJs = "";
+    /** Paginile ascunse (robotul si cautarea pe site-uri): fara imagini, video si fonturi. */
+    private final java.util.Set<WebView> hiddenViews = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<WebView, androidx.webkit.ScriptHandler> hiddenScripts = new java.util.HashMap<>();
     /** Ce site a cerut fiecare pagina deschisa din lista (ca sa vedem daca s-a mutat pe alta adresa). */
     private final java.util.Map<WebView, String[]> tabWanted = new java.util.WeakHashMap<>();
 
@@ -444,7 +447,7 @@ public class MainActivity extends Activity {
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             if (HUB && ASSET_HOST.equals(request.getUrl().getHost())) return serveHubAsset(request.getUrl());
             // robotul: fara video, fonturi si imagini (nu le vede nimeni), doar textul si listele
-            if (HUB && view == crawler && !request.isForMainFrame()) {
+            if (HUB && hiddenViews.contains(view) && !request.isForMainFrame()) {
                 String path = request.getUrl().getPath() == null ? "" : request.getUrl().getPath().toLowerCase();
                 if (path.matches(".*\\.(mp4|m3u8|ts|webm|mkv|woff2?|ttf|otf|eot|png|jpe?g|webp|gif|avif|svg|ico)$")) {
                     return new WebResourceResponse("text/plain", "utf-8", new java.io.ByteArrayInputStream(new byte[0]));
@@ -641,7 +644,7 @@ public class MainActivity extends Activity {
         if (HUB && data.startsWith("hub:")) {
             if (data.startsWith("hub:report:")) {
                 String[] w = tabWanted.get(view);
-                hub.onReport(data.substring(11), view == crawler, w == null ? null : w[0], w == null ? 0 : Long.parseLong(w[1]));
+                hub.onReport(data.substring(11), view, w == null ? null : w[0], w == null ? 0 : Long.parseLong(w[1]));
             }
             else hub.onCommand(data.substring(4));
             return;
@@ -1010,12 +1013,40 @@ public class MainActivity extends Activity {
             crawler.getSettings().setMediaPlaybackRequiresUserGesture(true);
             // robotul nu are nevoie de imagini: paginile se incarca mult mai repede
             crawler.getSettings().setBlockNetworkImage(true);
+            hiddenViews.add(crawler);
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                 WebViewCompat.addDocumentStartJavaScript(crawler, "window.__dfCrawl=1;", Collections.singleton("*"));
             }
             root.addView(crawler, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             return crawler;
+        }
+
+        @Override public WebView createSearcher() {
+            WebView w = createWebView();
+            w.getSettings().setMediaPlaybackRequiresUserGesture(true);
+            w.getSettings().setBlockNetworkImage(true);
+            hiddenViews.add(w);
+            root.addView(w, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            return w;
+        }
+
+        @Override public void loadWith(WebView w, String startJs, String url) {
+            androidx.webkit.ScriptHandler old = hiddenScripts.remove(w);
+            if (old != null) old.remove();
+            if (startJs != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                hiddenScripts.put(w, WebViewCompat.addDocumentStartJavaScript(w, startJs, Collections.singleton("*")));
+            }
+            w.loadUrl(url);
+        }
+
+        @Override public void destroyHidden(WebView w) {
+            hiddenScripts.remove(w);
+            hiddenViews.remove(w);
+            framesByView.remove(w);
+            root.removeView(w);
+            w.destroy();
         }
 
         @Override public void toCatalog(String msg) {

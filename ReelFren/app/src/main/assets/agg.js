@@ -270,6 +270,7 @@
     for (var p in pages) if (!sentPages[p]) { sentPages[p] = 1; pg.push(p); }
     if (!items.length && !st.length && !pg.length && !final) return;
     var msg = { url: location.href, host: HOST, title: document.title, items: items, sites: st, pages: pg, done: !!final };
+    if (extra) for (var ek in extra) msg[ek] = extra[ek];
     if (final || !window.__dfDiagSent) {
       window.__dfDiagSent = 1;
       msg.diag = {
@@ -348,6 +349,86 @@
     setTimeout(step, 1200);
   }
 
+  // ---------- cautare in campul de cautare al site-ului ----------
+  function searchInput() {
+    var sel = 'input[type=search],input[placeholder*=earch i],input[placeholder*=cari i],input[placeholder*=busca i],input[placeholder*=tìm i],'
+      + 'input[name*=search i],input[id*=search i],input[class*=search i],input[name=s],input[name=q],input[name=keyword],input[name=kw]';
+    var l = document.querySelectorAll(sel + ',input[type=text]');
+    for (var i = 0; i < l.length; i++) if (l[i].offsetParent || l[i].type === 'search') return l[i];
+    return l[0] || null;
+  }
+  function siteSearch(text) {
+    var inp = searchInput();
+    if (!inp) {
+      // campul apare doar dupa ce apesi lupa
+      var icon = document.querySelector('[class*=search i]:not(input),[aria-label*=earch i],[title*=earch i]');
+      if (icon) { try { icon.click(); } catch (e) { } inp = searchInput(); }
+    }
+    if (!inp) return false;
+    try { inp.focus(); } catch (e) { }
+    var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(inp, text);
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+    ['keydown', 'keypress', 'keyup'].forEach(function (t) {
+      inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+    });
+    var btn = (inp.form && inp.form.querySelector('button,[type=submit]')) || (inp.parentElement && inp.parentElement.querySelector('button'));
+    if (btn) { try { btn.click(); } catch (e) { } }
+    else if (inp.form) { try { inp.form.requestSubmit ? inp.form.requestSubmit() : inp.form.submit(); } catch (e) { } }
+    return true;
+  }
+
+  // ---------- 7. cautare pe site pentru lista din aplicatie (window.__dfSearch = {q, tok}) ----------
+  var extra = null;
+  function searchMode() {
+    var o = window.__dfSearch, q = String(o.q || '');
+    var mark = 'dfsearch_' + o.tok, rounds = 0, still = 0, last = -1, submitted = false;
+    try { submitted = !!sessionStorage.getItem(mark); } catch (e) { }
+    function urlHasQ() {
+      var u;
+      try { u = decodeURIComponent(location.href.replace(/\+/g, ' ')); } catch (e) { u = location.href; }
+      return u.toLowerCase().indexOf(q.toLowerCase()) >= 0;
+    }
+    function learnUrl() {
+      // adresa paginii de rezultate, cu {q} in locul cuvintelor cautate: data viitoare mergem direct acolo
+      var h = location.href, forms = [encodeURIComponent(q), encodeURIComponent(q).replace(/%20/g, '+'), q.replace(/ /g, '+'), q.replace(/ /g, '-'), q];
+      for (var i = 0; i < forms.length; i++) {
+        var at = h.toLowerCase().indexOf(forms[i].toLowerCase());
+        if (at >= 0) return h.slice(0, at) + '{q}' + h.slice(at + forms[i].length);
+      }
+      return '';
+    }
+    function finish() {
+      if (done) return;
+      done = true;
+      extra = { search: q, searchUrl: urlHasQ() ? learnUrl() : '' };
+      report(true);
+    }
+    function step() {
+      if (done) return;
+      if (/just a moment|attention required/i.test(document.title)) { if (++rounds > 20) return finish(); return setTimeout(step, 1000); }
+      rounds++;
+      if (!submitted && !urlHasQ()) {
+        if (rounds > 8) return finish();              // pagina nu are cautare
+        if (siteSearch(q)) {
+          submitted = true;
+          try { sessionStorage.setItem(mark, '1'); } catch (e) { }
+          still = 0; last = -1;
+        }
+        return setTimeout(step, 1200);
+      }
+      harvestDom();
+      var c = Object.keys(domItems).length + jsonCount;
+      if (c === last) still++; else { still = 0; last = c; }
+      report(false);
+      if (still >= 3 || rounds > 25) return finish();
+      if (rounds % 2 === 0) window.scrollTo(0, document.documentElement.scrollHeight);
+      setTimeout(step, 1000);
+    }
+    setTimeout(step, 1000);
+  }
+
   // ---------- 6. deschiderea unui film ales din lista (pagina fara link direct) ----------
   function openRequested() {
     var o = window.__dfOpen;
@@ -369,19 +450,7 @@
     }
     function trySearch() {
       searched = true;
-      var inp = document.querySelector('input[type=search],input[placeholder*=earch i],input[placeholder*=cari i],input[name*=search i],input[id*=search i],input[name=s],input[type=text]');
-      if (!inp || !o.title) return false;
-      var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-      setter.call(inp, o.title);
-      inp.dispatchEvent(new Event('input', { bubbles: true }));
-      inp.dispatchEvent(new Event('change', { bubbles: true }));
-      ['keydown', 'keypress', 'keyup'].forEach(function (t) {
-        inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-      });
-      var btn = inp.parentElement && inp.parentElement.querySelector('button');
-      if (btn) btn.click();
-      else if (inp.form) { try { inp.form.requestSubmit ? inp.form.requestSubmit() : inp.form.submit(); } catch (e) { } }
-      return true;
+      return o.title ? siteSearch(o.title) : false;
     }
     function tick() {
       if (/just a moment/i.test(document.title)) return setTimeout(tick, 1000);
@@ -400,7 +469,9 @@
   function boot() {
     openRequested();
     report(false);
+    if (window.__dfSearch) searchMode();
     setInterval(function () {
+      if (window.__dfSearch) return;
       if (window.__dfCrawl && !crawlStarted) crawl();
       if (!crawlStarted) { dirty = false; report(false); }
     }, 2000);

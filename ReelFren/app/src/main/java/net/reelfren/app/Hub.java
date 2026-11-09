@@ -41,6 +41,11 @@ class Hub {
 
     interface Owner {
         WebView createCrawler();
+        /** o pagina ascunsa pentru cautare pe site-uri */
+        WebView createSearcher();
+        /** incarca url in pagina ascunsa, cu startJs rulat la inceputul fiecarei pagini (null = fara) */
+        void loadWith(WebView w, String startJs, String url);
+        void destroyHidden(WebView w);
         void toCatalog(String msg);
         void openUrl(String url, String openJs);
         void allowHost(String host);
@@ -69,6 +74,8 @@ class Hub {
 
     static class Site {
         String host, url, label = "", status = "";
+        /** adresa paginii de rezultate, cu {q} in locul cuvintelor cautate (invatata la prima cautare) */
+        String searchUrl = "";
         boolean on = true;
         int count;
     }
@@ -139,13 +146,84 @@ class Hub {
     }
 
     /** Un raport de la agg.js (pagina vizibila sau robotul). */
-    void onReport(String json, boolean fromCrawler) { onReport(json, fromCrawler, null, 0); }
+    // cautarea pe toate site-urile
+    private final List<WebView> searchers = new ArrayList<>();
+    private final Map<WebView, String> searcherHost = new HashMap<>();
+    private final Map<WebView, Runnable> searcherTimeout = new HashMap<>();
+    private final ArrayDeque<Site> searchQueue = new ArrayDeque<>();
+    private String searchQ = "", searchTok = "";
+    private boolean searching = false;
+    private int searchTotal = 0, searchDone = 0, searchFound = 0;
+
+    void search(String q) {
+        q = q.trim();
+        if (q.length() < 2) return;
+        if (searching && q.equalsIgnoreCase(searchQ)) return;
+        cancelSearch();
+        searchQ = q;
+        searchTok = Long.toString(System.nanoTime(), 36);
+        searching = true;
+        for (Site s : sites.values()) if (s.on && !s.status.startsWith("mutat:")) searchQueue.add(s);
+        searchTotal = searchQueue.size();
+        searchDone = 0;
+        searchFound = 0;
+        int n = Math.min(3, searchTotal);
+        while (searchers.size() < n) searchers.add(owner.createSearcher());
+        for (WebView w : new ArrayList<>(searchers)) nextSearch(w);
+        pushStatus(null);
+    }
+
+    private void cancelSearch() {
+        searching = false;
+        searchQueue.clear();
+        for (Runnable r : searcherTimeout.values()) ui.removeCallbacks(r);
+        searcherTimeout.clear();
+        searcherHost.clear();
+        for (WebView w : searchers) owner.destroyHidden(w);
+        searchers.clear();
+    }
+
+    private void nextSearch(WebView w) {
+        Runnable old = searcherTimeout.remove(w);
+        if (old != null) ui.removeCallbacks(old);
+        if (!searching) return;
+        Site s = searchQueue.poll();
+        if (s == null) {
+            searcherHost.remove(w);
+            if (searcherHost.isEmpty()) {
+                String q = searchQ;
+                int found = searchFound;
+                cancelSearch();
+                pushStatus("C\u0103utare \u201e" + q + "\u201d gata pe toate site-urile: " + found + " filme noi.");
+                pushData(false);
+            }
+            return;
+        }
+        searcherHost.put(w, s.host);
+        String url = s.url;
+        if (!s.searchUrl.isEmpty()) {
+            try { url = s.searchUrl.replace("{q}", java.net.URLEncoder.encode(searchQ, "UTF-8")); } catch (Exception ignored) { }
+        }
+        try {
+            JSONObject o = new JSONObject().put("q", searchQ).put("tok", searchTok + s.host);
+            owner.loadWith(w, "window.__dfSearch=" + o + ";", url);
+        } catch (Exception e) {
+            owner.loadWith(w, null, "about:blank");
+        }
+        Runnable t = () -> { searchDone++; nextSearch(w); pushStatus(null); };
+        searcherTimeout.put(w, t);
+        ui.postDelayed(t, 40_000);
+    }
+
+    void onReport(String json, boolean fromCrawler) { onReport(json, fromCrawler ? crawler : null, null, 0); }
 
     /**
      * wantedUrl/openedAt: ce site ai deschis in pagina respectiva (sau ce a cerut robotul). Daca raportul vine
      * de pe alta adresa imediat dupa deschidere, site-ul cerut s-a mutat acolo (ex. reelfren.com -> reelfren.net).
      */
-    void onReport(String json, boolean fromCrawler, String wantedUrl, long openedAt) {
+    void onReport(String json, WebView from, String wantedUrl, long openedAt) {
+        boolean fromCrawler = from != null && from == crawler;
+        boolean fromSearch = from != null && searchers.contains(from);
         JSONObject r;
         try { r = new JSONObject(json); } catch (Exception e) { return; }
         String host = r.optString("host"), page = r.optString("url");
@@ -156,7 +234,7 @@ class Hub {
             site = addSite("https://" + host + "/", "", false);
         }
         long now = System.currentTimeMillis();
-        String want = fromCrawler ? current : wantedUrl;
+        String want = fromCrawler ? current : (fromSearch ? null : wantedUrl);
         if (fromCrawler) openedAt = crawlPageAt;
         if (want != null && !want.isEmpty() && now - openedAt < 60_000) {
             Site ws = sites.get(hostOf(want));
@@ -184,6 +262,7 @@ class Hub {
                     it.eps = eps; it.href = href; it.oc = oc; it.page = page; it.t = now;
                     items.put(k, it);
                     newThisRun++;
+                    if (fromSearch) searchFound++;
                     changed = true;
                     queueHash(it);
                 } else {
@@ -224,6 +303,22 @@ class Hub {
         }
         // orice film primit = site-ul merge (verificarea a trecut)
         if (its != null && its.length() > 0 && !"ok".equals(site.status)) { site.status = "ok"; changed = true; }
+        if (fromSearch && r.optBoolean("done") && host.equals(searcherHost.get(from))) {
+            String su = r.optString("searchUrl");
+            if (!su.isEmpty() && su.contains("{q}") && hostOf(su).equals(host) && !su.equals(site.searchUrl)) {
+                site.searchUrl = su;
+                changed = true;
+            }
+            searchDone++;
+            final WebView w = from;
+            ui.postDelayed(() -> nextSearch(w), 200);
+            pushStatus(null);
+        } else if (fromSearch && r.optBoolean("done")) {
+            // site-ul cautat s-a mutat pe alta adresa: raportul final vine de acolo
+            searchDone++;
+            final WebView w = from;
+            ui.postDelayed(() -> nextSearch(w), 200);
+        }
         if (changed) { scheduleSave(); schedulePush(); }
         if (fromCrawler && crawling && r.optBoolean("done")) {
             ui.removeCallbacks(timeout);
@@ -312,6 +407,11 @@ class Hub {
             o.put("added", newThisRun);
             o.put("hashing", hashing);
             o.put("text", text == null ? "" : text);
+            o.put("searching", searching);
+            o.put("sq", searchQ);
+            o.put("sdone", searchDone);
+            o.put("stotal", searchTotal);
+            o.put("sfound", searchFound);
             owner.toCatalog("hub:status:" + o);
         } catch (Exception ignored) { }
     }
@@ -502,7 +602,7 @@ class Hub {
     private void schedulePush() {
         ui.removeCallbacks(push);
         // cat lucreaza robotul, lista se reimprospateaza rar (sa poti derula linistit)
-        long wait = Math.max(800, (crawling ? 15000 : 3000) - (System.currentTimeMillis() - lastPush));
+        long wait = Math.max(800, (searching ? 2500 : crawling ? 15000 : 3000) - (System.currentTimeMillis() - lastPush));
         ui.postDelayed(push, wait);
     }
 
@@ -542,6 +642,8 @@ class Hub {
     void onCommand(String cmd) {
         if (cmd.equals("get")) {
             pushData(true);
+        } else if (cmd.startsWith("search:")) {
+            search(cmd.substring(7));
         } else if (cmd.equals("crawl")) {
             startCrawl();
         } else if (cmd.equals("stop")) {
@@ -636,7 +738,7 @@ class Hub {
             JSONArray ss = new JSONArray();
             for (Site s : sites.values()) {
                 ss.put(new JSONObject().put("host", s.host).put("url", s.url).put("label", s.label)
-                        .put("on", s.on).put("st", s.status));
+                        .put("on", s.on).put("st", s.status).put("su", s.searchUrl));
             }
             o.put("sites", ss);
             JSONArray is = new JSONArray();
@@ -676,7 +778,7 @@ class Hub {
                 JSONObject x = ss.getJSONObject(i);
                 Site s = new Site();
                 s.host = x.getString("host"); s.url = x.optString("url"); s.label = x.optString("label");
-                s.on = x.optBoolean("on", true); s.status = x.optString("st");
+                s.on = x.optBoolean("on", true); s.status = x.optString("st"); s.searchUrl = x.optString("su");
                 sites.put(s.host, s);
             }
             JSONArray is = o.optJSONArray("items");
