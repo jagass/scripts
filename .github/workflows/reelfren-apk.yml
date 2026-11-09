@@ -29,9 +29,32 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      # Gradle: copie pastrata in cache; serverul services.gradle.org da uneori "504 Gateway Time-out"
+      - name: Restore Gradle distribution
+        uses: actions/cache@v4
         with:
-          gradle-version: '8.7'
+          path: ~/gradle-dist
+          key: gradle-dist-8.7
+
+      - name: Install Gradle 8.7
+        working-directory: .
+        run: |
+          D="$HOME/gradle-dist"
+          if [ ! -x "$D/gradle-8.7/bin/gradle" ]; then
+            mkdir -p "$D"
+            ok=0
+            for i in 1 2 3 4 5 6 7 8; do
+              for u in https://services.gradle.org/distributions/gradle-8.7-bin.zip \
+                       https://downloads.gradle.org/distributions/gradle-8.7-bin.zip \
+                       https://github.com/gradle/gradle-distributions/releases/download/v8.7.0/gradle-8.7-bin.zip; do
+                if curl -fsSL --retry 2 -o "$D/g.zip" "$u"; then ok=1; break 2; fi
+              done
+              echo "Gradle download failed (attempt $i), retrying..."; sleep $((i*10))
+            done
+            [ "$ok" = 1 ] || { echo "::error::Nu am putut descarca Gradle"; exit 1; }
+            unzip -q "$D/g.zip" -d "$D" && rm "$D/g.zip"
+          fi
+          echo "$D/gradle-8.7/bin" >> "$GITHUB_PATH"
 
       # Aceeasi cheie de semnare la fiecare build (pastrata in cache-ul GitHub Actions), ca versiunile noi
       # sa se instaleze peste cele vechi fara dezinstalare (si fara sa se piarda datele din aplicatie).
