@@ -146,24 +146,60 @@ class Hub {
     }
 
     /** Un raport de la agg.js (pagina vizibila sau robotul). */
-    // cautarea pe toate site-urile
+    // cautarea pe toate site-urile (si "cautarea adanca": multe cuvinte, pentru site-urile care au doar cautare)
+    static final String[] DEEP_WORDS = {
+            "ceo", "love", "wife", "husband", "marriage", "divorce", "revenge", "billionaire", "boss", "heir",
+            "secret", "baby", "mafia", "alpha", "werewolf", "vampire", "princess", "queen", "king", "doctor",
+            "rich", "return", "reborn", "betray", "contract", "pregnant", "twins", "daughter", "son", "mother",
+            "bride", "ex", "regret", "hidden", "fake", "destiny", "dragon", "god", "war", "lucky",
+            "sweet", "hate", "fall", "night", "heart", "girl", "man", "life", "family", "the"
+    };
+
+    private static class Job {
+        final Site site; final String q;
+        Job(Site site, String q) { this.site = site; this.q = q; }
+    }
+
     private final List<WebView> searchers = new ArrayList<>();
-    private final Map<WebView, String> searcherHost = new HashMap<>();
+    private final Map<WebView, Job> searcherJob = new HashMap<>();
+    private final Map<WebView, Integer> searcherFound = new HashMap<>();
     private final Map<WebView, Runnable> searcherTimeout = new HashMap<>();
-    private final ArrayDeque<Site> searchQueue = new ArrayDeque<>();
+    private final ArrayDeque<Job> searchQueue = new ArrayDeque<>();
+    private final Map<String, Integer> deepEmpty = new HashMap<>(); // site -> cautari fara niciun film
     private String searchQ = "", searchTok = "";
-    private boolean searching = false;
+    private boolean searching = false, deep = false;
     private int searchTotal = 0, searchDone = 0, searchFound = 0;
+
+    private List<Site> searchableSites() {
+        List<Site> l = new ArrayList<>();
+        for (Site s : sites.values()) if (s.on && !s.status.startsWith("mutat:")) l.add(s);
+        return l;
+    }
 
     void search(String q) {
         q = q.trim();
         if (q.length() < 2) return;
-        if (searching && q.equalsIgnoreCase(searchQ)) return;
+        if (searching && !deep && q.equalsIgnoreCase(searchQ)) return;
         cancelSearch();
         searchQ = q;
+        for (Site s : searchableSites()) searchQueue.add(new Job(s, q));
+        startSearch(false);
+    }
+
+    /** Cautare adanca: toate cuvintele din DEEP_WORDS pe toate site-urile (dureaza mult, merge in fundal). */
+    void deepSearch() {
+        cancelSearch();
+        searchQ = "";
+        deepEmpty.clear();
+        List<Site> l = searchableSites();
+        for (String w : DEEP_WORDS) for (Site s : l) searchQueue.add(new Job(s, w));
+        startSearch(true);
+    }
+
+    private void startSearch(boolean isDeep) {
+        deep = isDeep;
         searchTok = Long.toString(System.nanoTime(), 36);
         searching = true;
-        for (Site s : sites.values()) if (s.on && !s.status.startsWith("mutat:")) searchQueue.add(s);
         searchTotal = searchQueue.size();
         searchDone = 0;
         searchFound = 0;
@@ -175,42 +211,78 @@ class Hub {
 
     private void cancelSearch() {
         searching = false;
+        deep = false;
         searchQueue.clear();
         for (Runnable r : searcherTimeout.values()) ui.removeCallbacks(r);
         searcherTimeout.clear();
-        searcherHost.clear();
+        searcherJob.clear();
+        searcherFound.clear();
         for (WebView w : searchers) owner.destroyHidden(w);
         searchers.clear();
+    }
+
+    void stopSearch() {
+        if (!searching) return;
+        int found = searchFound;
+        cancelSearch();
+        pushStatus("C\u0103utare oprit\u0103: " + found + " filme noi.");
+        pushData(false);
+    }
+
+    /** Pagina ascunsa w a terminat (sau a expirat) cautarea curenta: trecem la urmatoarea. */
+    private void jobDone(WebView w) {
+        Job j = searcherJob.get(w);
+        if (j != null && deep) {
+            Integer f = searcherFound.get(w);
+            if (f == null || f == 0) {
+                int e = deepEmpty.getOrDefault(j.site.host, 0) + 1;
+                deepEmpty.put(j.site.host, e);
+                if (e >= 3 && j.site.searchUrl.isEmpty()) {
+                    // site fara cautare (sau care nu raspunde): nu-l mai incercam cu celelalte cuvinte
+                    final Site dead = j.site;
+                    int before = searchQueue.size();
+                    searchQueue.removeIf(x -> x.site == dead);
+                    searchDone += before - searchQueue.size();
+                }
+            } else {
+                deepEmpty.put(j.site.host, -1000); // a mers macar o data
+            }
+        }
+        searchDone++;
+        nextSearch(w);
+        pushStatus(null);
     }
 
     private void nextSearch(WebView w) {
         Runnable old = searcherTimeout.remove(w);
         if (old != null) ui.removeCallbacks(old);
         if (!searching) return;
-        Site s = searchQueue.poll();
-        if (s == null) {
-            searcherHost.remove(w);
-            if (searcherHost.isEmpty()) {
-                String q = searchQ;
+        Job j = searchQueue.poll();
+        if (j == null) {
+            searcherJob.remove(w);
+            if (searcherJob.isEmpty()) {
+                String q = deep ? "c\u0103utarea ad\u00e2nc\u0103" : "c\u0103utarea \u201e" + searchQ + "\u201d";
                 int found = searchFound;
                 cancelSearch();
-                pushStatus("C\u0103utare \u201e" + q + "\u201d gata pe toate site-urile: " + found + " filme noi.");
+                pushStatus("Gata " + q + " pe toate site-urile: " + found + " filme noi.");
                 pushData(false);
             }
             return;
         }
-        searcherHost.put(w, s.host);
+        searcherJob.put(w, j);
+        searcherFound.put(w, 0);
+        Site s = j.site;
         String url = s.url;
         if (!s.searchUrl.isEmpty()) {
-            try { url = s.searchUrl.replace("{q}", java.net.URLEncoder.encode(searchQ, "UTF-8")); } catch (Exception ignored) { }
+            try { url = s.searchUrl.replace("{q}", java.net.URLEncoder.encode(j.q, "UTF-8")); } catch (Exception ignored) { }
         }
         try {
-            JSONObject o = new JSONObject().put("q", searchQ).put("tok", searchTok + s.host);
+            JSONObject o = new JSONObject().put("q", j.q).put("tok", searchTok + s.host + j.q);
             owner.loadWith(w, "window.__dfSearch=" + o + ";", url);
         } catch (Exception e) {
             owner.loadWith(w, null, "about:blank");
         }
-        Runnable t = () -> { searchDone++; nextSearch(w); pushStatus(null); };
+        Runnable t = () -> jobDone(w);
         searcherTimeout.put(w, t);
         ui.postDelayed(t, 40_000);
     }
@@ -262,7 +334,7 @@ class Hub {
                     it.eps = eps; it.href = href; it.oc = oc; it.page = page; it.t = now;
                     items.put(k, it);
                     newThisRun++;
-                    if (fromSearch) searchFound++;
+                    if (fromSearch) { searchFound++; searcherFound.merge(from, 1, Integer::sum); }
                     changed = true;
                     queueHash(it);
                 } else {
@@ -303,21 +375,23 @@ class Hub {
         }
         // orice film primit = site-ul merge (verificarea a trecut)
         if (its != null && its.length() > 0 && !"ok".equals(site.status)) { site.status = "ok"; changed = true; }
-        if (fromSearch && r.optBoolean("done") && host.equals(searcherHost.get(from))) {
+        Job job = fromSearch ? searcherJob.get(from) : null;
+        if (fromSearch && r.optBoolean("done") && job != null && host.equals(job.site.host)) {
             String su = r.optString("searchUrl");
             if (!su.isEmpty() && su.contains("{q}") && hostOf(su).equals(host) && !su.equals(site.searchUrl)) {
                 site.searchUrl = su;
                 changed = true;
             }
-            searchDone++;
             final WebView w = from;
-            ui.postDelayed(() -> nextSearch(w), 200);
-            pushStatus(null);
-        } else if (fromSearch && r.optBoolean("done")) {
+            Runnable t = searcherTimeout.remove(w);
+            if (t != null) ui.removeCallbacks(t);
+            ui.postDelayed(() -> jobDone(w), 200);
+        } else if (fromSearch && r.optBoolean("done") && job != null) {
             // site-ul cautat s-a mutat pe alta adresa: raportul final vine de acolo
-            searchDone++;
             final WebView w = from;
-            ui.postDelayed(() -> nextSearch(w), 200);
+            Runnable t = searcherTimeout.remove(w);
+            if (t != null) ui.removeCallbacks(t);
+            ui.postDelayed(() -> jobDone(w), 200);
         }
         if (changed) { scheduleSave(); schedulePush(); }
         if (fromCrawler && crawling && r.optBoolean("done")) {
@@ -408,7 +482,9 @@ class Hub {
             o.put("hashing", hashing);
             o.put("text", text == null ? "" : text);
             o.put("searching", searching);
-            o.put("sq", searchQ);
+            o.put("deep", deep);
+            Job cur = searcherJob.isEmpty() ? null : searcherJob.values().iterator().next();
+            o.put("sq", deep ? (cur != null ? cur.q : "") : searchQ);
             o.put("sdone", searchDone);
             o.put("stotal", searchTotal);
             o.put("sfound", searchFound);
@@ -602,7 +678,7 @@ class Hub {
     private void schedulePush() {
         ui.removeCallbacks(push);
         // cat lucreaza robotul, lista se reimprospateaza rar (sa poti derula linistit)
-        long wait = Math.max(800, (searching ? 2500 : crawling ? 15000 : 3000) - (System.currentTimeMillis() - lastPush));
+        long wait = Math.max(800, (searching ? (deep ? 10000 : 2500) : crawling ? 15000 : 3000) - (System.currentTimeMillis() - lastPush));
         ui.postDelayed(push, wait);
     }
 
@@ -644,6 +720,10 @@ class Hub {
             pushData(true);
         } else if (cmd.startsWith("search:")) {
             search(cmd.substring(7));
+        } else if (cmd.equals("deep")) {
+            deepSearch();
+        } else if (cmd.equals("searchstop")) {
+            stopSearch();
         } else if (cmd.equals("crawl")) {
             startCrawl();
         } else if (cmd.equals("stop")) {

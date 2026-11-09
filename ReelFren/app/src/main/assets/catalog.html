@@ -120,7 +120,8 @@
     var t = groups.length + ' filme (' + totalItems + ' din toate site-urile)';
     if (crawling) t = '⏳ ' + s.host + ' · pagina ' + s.done + ' (încă ' + s.left + ') · +' + s.added + ' noi · ' + t;
     else if (s.text) t = s.text + ' · ' + t;
-    if (s.searching) t = '🔎 caut „' + s.sq + '” pe site-uri: ' + s.sdone + '/' + s.stotal + ' · +' + s.sfound + ' filme noi · ' + t;
+    if (s.searching && s.deep) t = '🔎 căutare adâncă: „' + s.sq + '” · ' + s.sdone + '/' + s.stotal + ' · +' + s.sfound + ' filme noi (atinge aici ca s-o oprești) · ' + t;
+    else if (s.searching) t = '🔎 caut „' + s.sq + '” pe site-uri: ' + s.sdone + '/' + s.stotal + ' · +' + s.sfound + ' filme noi · ' + t;
     if (s.hashing > 0) t += ' · compar postere: ' + s.hashing;
     $('status').textContent = t;
   }
@@ -247,10 +248,14 @@
   }
 
   $('crawl').onclick = function () { send(crawling ? 'hub:stop' : 'hub:crawl'); };
+  $('status').onclick = function () {
+    if (lastStatus.searching && confirm('Oprești căutarea pe site-uri? Filmele găsite până acum rămân.')) send('hub:searchstop');
+  };
   $('sitesBtn').onclick = showSites;
   $('menuBtn').onclick = function () {
     sheet('<h3>Meniu</h3>'
       + '<div class="li"><div class="x">Deschide idrama.dramafren.org</div><button data-site="open:idrama.dramafren.org">Deschide</button></div>'
+      + '<div class="li"><div class="x">🔎 Căutare adâncă<small>Caută pe toate site-urile cu ' + 50 + ' de cuvinte des întâlnite în titluri (CEO, love, wife, revenge…) și adaugă tot ce găsește. Bun pentru site-urile care au doar căutare (ex. idrama). Durează mult; merge în fundal.</small></div><button data-cmd="deep">Pornește</button></div>'
       + '<div class="li"><div class="x">Diagnostic (copiază, pentru chat)</div><button data-cmd="diag">Copiază</button></div>'
       + '<div class="li"><div class="x">Golește lista de filme</div><button data-cmd="clear">Golește</button></div>');
   };

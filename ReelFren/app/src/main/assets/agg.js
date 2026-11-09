@@ -287,7 +287,18 @@
   function crawl() {
     crawlStarted = true;
     var rounds = 0, still = 0, lastCount = -1, apiDone = {}, replaying = 0;
-    var MORE = /^(load more|show more|more|view more|see more|mai mult|xem thêm|lihat lebih|muat lebih|ver más|cargar más|mais|carregar mais|더보기|もっと見る|加载更多|查看更多|next|›|»)$/i;
+    var MORE = /^(load more|show more|more|view more|see more|mai mult|xem thêm|lihat lebih|muat lebih|ver más|cargar más|mais|carregar mais|더보기|もっと見る|加载更多|查看更多|next|next page|next ›|next »|next →|›|»|>|>>|→|▶|▸|❯|⟩|older|următoarea|siguiente|próxima|berikutnya|tiếp)$/i;
+    // butonul spre pagina urmatoare poate fi doar o sageata (fara text): ne uitam si la aria-label / title / clasa
+    function isMore(b) {
+      if (b.disabled || b.getAttribute('aria-disabled') === 'true' || /disabled/i.test(b.className || '')) return false;
+      var t = clean(b.textContent);
+      if (t.length < 20 && MORE.test(t)) return true;
+      if (t.length <= 2) {
+        var lab = (b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + (typeof b.className === 'string' ? b.className : '');
+        return /(^|[^a-z])(next|more)([^a-z]|$)|chevron-right|arrow-right|page-next|pagination-next/i.test(lab);
+      }
+      return false;
+    }
     function step() {
       if (done) return;
       if (/just a moment|attention required/i.test(document.title)) { // verificarea Cloudflare: asteptam
@@ -298,8 +309,8 @@
       window.scrollTo(0, document.documentElement.scrollHeight);
       var bs = document.querySelectorAll('button,a,[role=button],div[class*=more],span[class*=more]');
       for (var i = 0; i < bs.length; i++) {
-        var b = bs[i], t = clean(b.textContent);
-        if (t.length < 20 && MORE.test(t) && b.offsetParent) {
+        var b = bs[i];
+        if (b.offsetParent && isMore(b)) {
           if (b.tagName === 'A') { var hh = b.getAttribute('href') || ''; if (hh && hh.charAt(0) !== '#' && !/^javascript/i.test(hh)) continue; }
           try { b.click(); } catch (e) { }
           break;
@@ -350,19 +361,34 @@
   }
 
   // ---------- cautare in campul de cautare al site-ului ----------
-  function searchInput() {
-    var sel = 'input[type=search],input[placeholder*=earch i],input[placeholder*=cari i],input[placeholder*=busca i],input[placeholder*=tìm i],'
-      + 'input[name*=search i],input[id*=search i],input[class*=search i],input[name=s],input[name=q],input[name=keyword],input[name=kw]';
-    var l = document.querySelectorAll(sel + ',input[type=text]');
-    for (var i = 0; i < l.length; i++) if (l[i].offsetParent || l[i].type === 'search') return l[i];
-    return l[0] || null;
+  var SEARCH_SEL = 'input[type=search],input[placeholder*=earch i],input[placeholder*=cari i],input[placeholder*=busca i],input[placeholder*=tìm i],'
+    + 'input[name*=search i],input[id*=search i],input[class*=search i],input[name=s],input[name=q],input[name=keyword],input[name=kw]';
+  function visible(el) { return !!(el.offsetParent || el.getClientRects().length); }
+  function searchInput(allowPlain) {
+    var l = document.querySelectorAll(SEARCH_SEL);
+    for (var i = 0; i < l.length; i++) if (visible(l[i])) return l[i];
+    if (!allowPlain) return null;
+    var t = document.querySelectorAll('input[type=text],input:not([type])');
+    for (var j = 0; j < t.length; j++) if (visible(t[j]) && !/https?:|url|link|email|mail/i.test((t[j].placeholder || '') + ' ' + (t[j].name || ''))) return t[j];
+    return null;
   }
   function siteSearch(text) {
-    var inp = searchInput();
+    var inp = searchInput(false);
     if (!inp) {
-      // campul apare doar dupa ce apesi lupa
-      var icon = document.querySelector('[class*=search i]:not(input),[aria-label*=earch i],[title*=earch i]');
-      if (icon) { try { icon.click(); } catch (e) { } inp = searchInput(); }
+      // campul apare doar dupa ce apesi fila "Search Title" sau lupa
+      var cands = document.querySelectorAll('button,a,[role=tab],[role=button],li,span,div');
+      for (var i = 0; i < cands.length && !inp; i++) {
+        var c = cands[i], t = clean(c.textContent);
+        if (t.length > 25 || !/^(search|search title|search drama|search by title|cauta|cari|buscar|tìm kiếm|搜索)$/i.test(t)) continue;
+        if (c.children.length > 2) continue;
+        try { c.click(); } catch (e) { }
+        inp = searchInput(false);
+      }
+      if (!inp) {
+        var icon = document.querySelector('[class*=search i]:not(input),[aria-label*=earch i],[title*=earch i]');
+        if (icon) { try { icon.click(); } catch (e) { } inp = searchInput(false); }
+      }
+      if (!inp) inp = searchInput(true);
     }
     if (!inp) return false;
     try { inp.focus(); } catch (e) { }
@@ -373,7 +399,8 @@
     ['keydown', 'keypress', 'keyup'].forEach(function (t) {
       inp.dispatchEvent(new KeyboardEvent(t, { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
     });
-    var btn = (inp.form && inp.form.querySelector('button,[type=submit]')) || (inp.parentElement && inp.parentElement.querySelector('button'));
+    var btn = (inp.form && inp.form.querySelector('button,[type=submit]')) || (inp.parentElement && inp.parentElement.querySelector('button'))
+      || (inp.parentElement && inp.parentElement.parentElement && inp.parentElement.parentElement.querySelector('button'));
     if (btn) { try { btn.click(); } catch (e) { } }
     else if (inp.form) { try { inp.form.requestSubmit ? inp.form.requestSubmit() : inp.form.submit(); } catch (e) { } }
     return true;
