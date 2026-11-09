@@ -91,6 +91,17 @@
     lsSet(name, JSON.stringify(set));
   }
 
+  // mesaje scurte (pe desktop; pe telefon le arata Android)
+  var toastEl = null, toastT = null;
+  function toast(t) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:20;background:rgba(0,0,0,.85);color:#fff;padding:10px 16px;border-radius:12px;max-width:90vw;font-size:14px;transition:opacity .3s';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = t; toastEl.style.opacity = '1';
+    clearTimeout(toastT); toastT = setTimeout(function () { toastEl.style.opacity = '0'; }, 3500);
+  }
   function send(m) { try { RFBridge.postMessage(m); } catch (e) { } }
   if (window.RFBridge) {
     RFBridge.onmessage = function (ev) {
@@ -100,6 +111,8 @@
         groups = o.groups || []; sites = o.sites || []; totalItems = o.items || 0;
         hitQ = o.hq || ''; hitSet = {}; (o.hits || []).forEach(function (k) { hitSet[k] = 1; });
         fillSites(); apply(true);
+      } else if (d.indexOf('hub:toast:') === 0) {
+        toast(d.slice(10));
       } else if (d.indexOf('hub:setq:') === 0) {
         // filmul nu mergea pe site-ul lui: il cautam dupa titlu pe toate site-urile
         $('q').value = d.slice(9); setView('all'); window.scrollTo(0, 0);

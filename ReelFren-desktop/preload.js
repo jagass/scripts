@@ -14,4 +14,8 @@ window.addEventListener('message', (e) => {
   else if (m.indexOf('click:') === 0) ipcRenderer.send('rf:click', m.slice(6));
   else if (m.indexOf('open:') === 0) ipcRenderer.send('rf:open', m.slice(5));
   else if (m === 'adblock:toggle') ipcRenderer.send('rf:adblock');
+  else if (m.indexOf('hub:') === 0) ipcRenderer.send('rf:hub', m); // DramaFren: filme gasite, comenzi din lista
 });
+
+// mesajele aplicatiei catre pagina (lista DramaFren)
+ipcRenderer.on('rf:in', (e, m) => window.postMessage({ __rfIn: m }, '*'));

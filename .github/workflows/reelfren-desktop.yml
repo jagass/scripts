@@ -24,6 +24,9 @@ jobs:
           - site: shortmax
             exe: ShortMax.exe
             title: ShortMax Desktop
+          - site: dramafren
+            exe: DramaFren.exe
+            title: DramaFren Desktop
     defaults:
       run:
         working-directory: ReelFren-desktop

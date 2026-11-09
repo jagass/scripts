@@ -1,0 +1,9 @@
+{
+  "id": "dramafren",
+  "productName": "DramaFren",
+  "appId": "org.dramafren.desktop",
+  "home": "https://idrama.dramafren.org/",
+  "domains": ["dramafren.org"],
+  "icon": "build/icon-dramafren.png",
+  "hub": true
+}

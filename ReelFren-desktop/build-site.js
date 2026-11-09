@@ -11,7 +11,7 @@ builder.build({
     appId: cfg.appId,
     productName: cfg.productName,
     directories: { output: 'dist' },
-    files: ['main.js', 'preload.js', 'desktop.js', 'hls-shim.js', 'site.json', 'shared/**', cfg.icon],
+    files: ['main.js', 'preload.js', 'desktop.js', 'hls-shim.js', 'hub.js', 'site.json', 'shared/**', cfg.icon],
     win: { target: 'portable', icon: cfg.icon },
     portable: { artifactName: cfg.productName + '.exe' },
   },

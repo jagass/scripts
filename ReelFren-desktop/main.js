@@ -1,6 +1,7 @@
 // Fereastra dedicata pentru un site de seriale (ReelFren, ShortMax...), cu aceleasi protectii
 // ca aplicatia Android: linkuri externe, pop-up-uri si reclame blocate. Site-ul vine din site.json.
-const { app, BrowserWindow, session, ipcMain, Menu } = require('electron');
+const { app, BrowserWindow, session, ipcMain, Menu, protocol, net, clipboard } = require('electron');
+const { Hub } = require('./hub.js');
 const path = require('path');
 const fs = require('fs');
 
@@ -12,6 +13,12 @@ const SITE = (() => {
 const HOME_URL = SITE.home;
 const ALLOWED_DOMAINS = SITE.domains;
 const APP_NAME = SITE.productName;
+// DramaFren: lista comuna de filme din mai multe site-uri (pagina din aplicatie + robot), vezi hub.js
+const HUB = !!SITE.hub;
+const CATALOG_URL = 'dfapp://app/catalog.html';
+if (HUB) {
+  protocol.registerSchemesAsPrivileged([{ scheme: 'dfapp', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
+}
 
 // fiecare aplicatie are datele ei separate (login, cookie-uri, marimea ferestrei)
 app.setName(APP_NAME);
@@ -75,12 +82,18 @@ function readLocal(name) {
 
 // Scripturile rulate in pagina, in ordine: puntea de mesaje, player, reclame, filtru, tastatura.
 const BRIDGE_SHIM =
-  'if(!window.RFBridge){window.RFBridge={onmessage:null,postMessage:function(m){window.postMessage({__rfOut:String(m)},"*");}};}';
+  'if(!window.RFBridge){window.RFBridge={onmessage:null,postMessage:function(m){window.postMessage({__rfOut:String(m)},"*");}};' +
+  // mesajele de la aplicatie catre pagina (lista DramaFren)
+  'window.addEventListener("message",function(e){if(e.data&&typeof e.data.__rfIn==="string"&&typeof window.RFBridge.onmessage==="function")window.RFBridge.onmessage({data:e.data.__rfIn});});}';
 // hls.js e incarcat sub alt nume (__RfHls), ca sa nu se amestece cu un eventual hls.js al site-ului
 const HLS_LIB = '(function(){var module={exports:{}};var exports=module.exports;var define;\n' +
   readShared('hls.min.js') + '\n;window.__RfHls=module.exports;})();';
-const PAGE_SCRIPT = [BRIDGE_SHIM, HLS_LIB, readLocal('hls-shim.js'), readShared('player.js'), readShared('adblock.js'),
-  readShared('filter.js'), readShared('epcheck.js'), readLocal('desktop.js')].join('\n;\n');
+const PAGE_SCRIPT = [BRIDGE_SHIM, HLS_LIB, readLocal('hls-shim.js'), readShared('player.js'), readShared('adblock.js')]
+  .concat(HUB ? [readShared('agg.js')] : [readShared('filter.js'), readShared('epcheck.js')])
+  .concat([readLocal('desktop.js')]).join('\n;\n');
+// scripturi in plus pentru o anumita pagina (ex. robotul: window.__dfCrawl=1), rulate inaintea celorlalte
+const extraByWc = new Map();
+let catalogWcId = -1;
 
 // Fereastra isi aminteste marimea si pozitia.
 const stateFile = () => path.join(app.getPath('userData'), 'window.json');
@@ -117,7 +130,7 @@ app.userAgentFallback = CLEAN_UA;
 
 // Fereastra principala (lista de seriale) sau o fereastra noua pentru un serial (isChild):
 // lista ramane incarcata in fereastra principala cat timp te uiti la serial.
-function createWindow(url, isChild) {
+function createWindow(url, isChild, extraJs) {
   const b = loadBounds();
   const main = !isChild;
   let pos = {};
@@ -149,6 +162,9 @@ function createWindow(url, isChild) {
   }
 
   const wc = w.webContents;
+  if (extraJs) extraByWc.set(wc.id, extraJs);
+  if (isChild) childWindows.push(w);
+  attachGuards(wc);
 
   // Pop-up-uri: blocate. Linkurile din site deschise "in fereastra noua" se deschid aici.
   wc.setWindowOpenHandler(({ url: u }) => {
@@ -156,21 +172,6 @@ function createWindow(url, isChild) {
     else if (fromUserClick(u)) { allowByUser(u); wc.loadURL(u); }
     return { action: 'deny' };
   });
-  // Navigare spre alte domenii (reclame, redirecturi): blocata.
-  const guard = (e, u) => {
-    if (isAllowed(u)) return;
-    if (fromUserClick(u)) { allowByUser(u); return; }
-    e.preventDefault();
-    let host = u;
-    try { host = new URL(u).hostname; } catch (err) { /* ignore */ }
-    wc.executeJavaScript('(function(){var d=document.createElement("div");d.textContent=' + JSON.stringify('Link extern blocat: ' + host) +
-      ';d.style.cssText="position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.8);color:#fff;' +
-      'font:14px system-ui;padding:8px 14px;border-radius:10px;pointer-events:none";document.body.appendChild(d);setTimeout(function(){d.remove()},2500)})()')
-      .catch(() => {});
-  };
-  wc.on('will-navigate', guard);
-  wc.on('will-redirect', (e, u, isInPlace, isMainFrame) => { if (isMainFrame) guard(e, u); });
-
   // F11 = ecran complet, Esc = iesire din ecran complet (in fereastra unui serial: inchide si revine la lista)
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
@@ -182,12 +183,171 @@ function createWindow(url, isChild) {
     else if (input.alt && input.key === 'ArrowLeft' && wc.navigationHistory.canGoBack()) { wc.navigationHistory.goBack(); e.preventDefault(); }
   });
 
-  if (main) w.on('close', () => { saveBounds(w); BrowserWindow.getAllWindows().forEach((o) => { if (o !== w) o.destroy(); }); });
-  w.on('closed', () => { if (isChild && win && !win.isDestroyed()) win.focus(); });
+  if (main) w.on('close', () => {
+    saveBounds(w);
+    if (hub) { hub.stopCrawl(); hub.saveNow(); }
+    BrowserWindow.getAllWindows().forEach((o) => { if (o !== w) o.destroy(); });
+  });
+  w.on('closed', () => {
+    const i = childWindows.indexOf(w);
+    if (i >= 0) childWindows.splice(i, 1);
+    if (isChild && win && !win.isDestroyed()) win.focus();
+  });
   w.on('page-title-updated', (e) => { e.preventDefault(); w.setTitle(APP_NAME); });
 
-  wc.loadURL(url || HOME_URL);
+  wc.loadURL(url || (HUB ? CATALOG_URL : HOME_URL));
   return w;
+}
+
+const childWindows = [];
+const pageStart = new Map(); // wc.id -> cand a inceput pagina (redirecturile imediate ale site-ului sunt permise)
+
+// Navigare spre alte domenii (reclame, redirecturi): blocata.
+function attachGuards(wc) {
+  wc.on('did-start-loading', () => pageStart.set(wc.id, Date.now()));
+  const guard = (e, u) => {
+    if (isAllowed(u)) return;
+    if (fromUserClick(u)) { allowByUser(u); return; }
+    // DramaFren: un site din lista care te muta singur pe alta adresa (ex. dupa verificarea Cloudflare)
+    if (HUB && hub && isAllowed(wc.getURL()) && !hostMatches(hostOf(u), AD_HOSTS) &&
+        Date.now() - (pageStart.get(wc.id) || 0) < 20000 && /^https?:/.test(u)) {
+      userAllowedHosts.add(hostOf(u));
+      hub.onMoved(wc.getURL(), u);
+      return;
+    }
+    e.preventDefault();
+    let host = u;
+    try { host = new URL(u).hostname; } catch (err) { /* ignore */ }
+    wc.executeJavaScript('(function(){var d=document.createElement("div");d.textContent=' + JSON.stringify('Link extern blocat: ' + host) +
+      ';d.style.cssText="position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483647;background:rgba(0,0,0,.8);color:#fff;' +
+      'font:14px system-ui;padding:8px 14px;border-radius:10px;pointer-events:none";document.body.appendChild(d);setTimeout(function(){d.remove()},2500)})()')
+      .catch(() => {});
+  };
+  wc.on('will-navigate', guard);
+  wc.on('will-redirect', (e, u, isInPlace, isMainFrame) => { if (isMainFrame) guard(e, u); });
+}
+
+function hostOf(u) { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } }
+
+// ------------------------------------------------------------------ DramaFren (hub)
+let hub = null;
+const tabWanted = new Map(); // wc.id -> [url, cand] (ce site a cerut fereastra deschisa din lista)
+let hasher = null, hashSeq = 0;
+const hashWait = new Map();
+
+// paginile ascunse (robotul si cautarea): ferestre invizibile, fara sunet
+function createHidden() {
+  const w = new BrowserWindow({
+    show: false, width: 1100, height: 900,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+  });
+  w.webContents.setAudioMuted(true);
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // verificarea Cloudflare care nu trece singura (cere clic): dupa 25 s sarim site-ul
+  w.webContents.on('did-finish-load', () => {
+    const wc = w.webContents, url = wc.getURL();
+    if (!challengeByWc.get(wc.id)) return;
+    setTimeout(() => {
+      if (!w.isDestroyed() && challengeByWc.get(wc.id) && wc.getURL() === url && hub) hub.skipStuck(w, url);
+    }, 25000);
+  });
+  attachGuards(w.webContents);
+  return w;
+}
+
+// amprenta posterului se calculeaza intr-o pagina ascunsa (decodeaza si webp/avif, ca browserul)
+const HASHER_HTML = '<!doctype html><script>const {ipcRenderer}=require("electron");' +
+  'ipcRenderer.on("hash",async(e,id,buf)=>{try{const b=await createImageBitmap(new Blob([buf]));' +
+  'const m=new OffscreenCanvas(64,64),mx=m.getContext("2d");mx.imageSmoothingQuality="high";mx.drawImage(b,0,0,64,64);' +
+  'const c=new OffscreenCanvas(9,8),x=c.getContext("2d");x.imageSmoothingQuality="high";x.drawImage(m,0,0,9,8);' +
+  'const d=x.getImageData(0,0,9,8).data;let hi=0,lo=0;' +
+  'for(let y=0;y<8;y++)for(let i=0;i<8;i++){const p=(y*9+i)*4,q=p+4;' +
+  'const g1=(d[p]*299+d[p+1]*587+d[p+2]*114)/1000,g2=(d[q]*299+d[q+1]*587+d[q+2]*114)/1000;const bit=y*8+i;' +
+  'if(g1>g2){if(bit<32)lo=(lo|(1<<bit))>>>0;else hi=(hi|(1<<(bit-32)))>>>0;}}' +
+  'ipcRenderer.send("hashed",id,hi.toString(16).padStart(8,"0")+lo.toString(16).padStart(8,"0"));}' +
+  'catch(err){ipcRenderer.send("hashed",id,null);}});</script>';
+function hashImage(buf) {
+  if (!hasher || hasher.isDestroyed()) {
+    hasher = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false } });
+    hasher.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(HASHER_HTML));
+  }
+  return new Promise((resolve) => {
+    const id = ++hashSeq;
+    hashWait.set(id, resolve);
+    const send = () => hasher.webContents.send('hash', id, buf);
+    if (hasher.webContents.isLoading()) hasher.webContents.once('did-finish-load', send); else send();
+    setTimeout(() => { if (hashWait.has(id)) { hashWait.delete(id); resolve(null); } }, 20000);
+  });
+}
+async function fetchImage(url, referer) {
+  const r = await net.fetch(url, { headers: { Referer: referer, Accept: 'image/avif,image/webp,image/*,*/*;q=0.8' } });
+  if (!r.ok) throw new Error('http ' + r.status);
+  const b = Buffer.from(await r.arrayBuffer());
+  if (b.length > 6000000) throw new Error('too big');
+  return b;
+}
+
+function toCatalog(msg) {
+  if (win && !win.isDestroyed()) win.webContents.send('rf:in', msg);
+}
+
+function setupHub() {
+  let brokenWc = null;
+  hub = new Hub(app.getPath('userData'), {
+    createCrawler: () => createHidden(),
+    createSearcher: () => createHidden(),
+    loadWith: (w, startJs, url) => {
+      if (!w || w.isDestroyed()) return;
+      if (startJs) extraByWc.set(w.webContents.id, startJs); else extraByWc.delete(w.webContents.id);
+      w.webContents.loadURL(url).catch(() => {});
+    },
+    destroyHidden: (w) => { if (w && !w.isDestroyed()) { extraByWc.delete(w.webContents.id); w.destroy(); } },
+    closeTop: () => {
+      const w = brokenWc ? BrowserWindow.fromWebContents(brokenWc) : childWindows[childWindows.length - 1];
+      if (w && w !== win && !w.isDestroyed()) w.close();
+    },
+    toCatalog,
+    openUrl: (url, openJs) => {
+      userAllowedHosts.add(hostOf(url));
+      const w = createWindow(url, true, openJs);
+      tabWanted.set(w.webContents.id, [url, Date.now()]);
+    },
+    allowHost: (h) => userAllowedHosts.add(h),
+    copyText: (t) => clipboard.writeText(t),
+    toast: (t) => toCatalog('hub:toast:' + t),
+    fetchImage,
+    hashImage,
+  });
+  ipcMain.on('hashed', (e, id, hex) => { const r = hashWait.get(id); if (r) { hashWait.delete(id); r(hex); } });
+  ipcMain.on('rf:hub', (e, m) => {
+    const wc = e.sender;
+    if (m.startsWith('hub:broken:')) {
+      const w = BrowserWindow.fromWebContents(wc);
+      if (w && childWindows.includes(w)) { brokenWc = wc; hub.onBroken(m.slice(11)); brokenWc = null; }
+      return;
+    }
+    if (m.startsWith('hub:report:')) {
+      const hw = BrowserWindow.fromWebContents(wc);
+      const want = tabWanted.get(wc.id);
+      hub.onReport(m.slice(11), hw, want ? want[0] : null, want ? want[1] : 0);
+      return;
+    }
+    if (wc.id === catalogWcId || (win && !win.isDestroyed() && wc === win.webContents)) hub.onCommand(m.slice(4));
+  });
+
+  // pagina listei si posterele care nu se incarca direct (cerute cu adresa site-ului ca referinta)
+  protocol.handle('dfapp', async (req) => {
+    const u = new URL(req.url);
+    if (u.pathname === '/img') {
+      const img = u.searchParams.get('u') || '', k = u.searchParams.get('k') || '';
+      const host = k.indexOf('|') > 0 ? k.slice(0, k.indexOf('|')) : hostOf(img);
+      try { return new Response(await fetchImage(img, 'https://' + host + '/'), { headers: { 'content-type': 'image/jpeg' } }); }
+      catch (e) { return new Response('', { status: 404 }); }
+    }
+    try {
+      return new Response(fs.readFileSync(path.join(__dirname, 'shared', 'catalog.html')), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    } catch (e) { return new Response('', { status: 404 }); }
+  });
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -242,7 +402,12 @@ if (!gotLock) {
     ses.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'fullscreen'));
 
     ipcMain.on('rf:scripts', (e) => {
-      e.returnValue = challengeByWc.get(e.sender.id) ? '' : (adblockOn ? '' : 'window.__rfAdOff=true;\n') + PAGE_SCRIPT;
+      // lista DramaFren (pagina din aplicatie): doar puntea de mesaje
+      if (HUB && (e.sender.getURL().startsWith('dfapp:') || (win && !win.isDestroyed() && e.sender === win.webContents))) {
+        catalogWcId = e.sender.id; e.returnValue = BRIDGE_SHIM; return;
+      }
+      e.returnValue = challengeByWc.get(e.sender.id) ? '' : (extraByWc.get(e.sender.id) || '') + '\n;' +
+        (adblockOn ? '' : 'window.__rfAdOff=true;\n') + PAGE_SCRIPT;
     });
     ipcMain.on('rf:fs', (e, on) => {
       const w = BrowserWindow.fromWebContents(e.sender);
@@ -259,7 +424,8 @@ if (!gotLock) {
       try { lastClick = { host: new URL(url).hostname.toLowerCase(), at: Date.now() }; } catch (err) { /* ignore */ }
     });
 
-    createWindow(HOME_URL, false);
+    if (HUB) setupHub();
+    createWindow(HUB ? CATALOG_URL : HOME_URL, false);
   });
 
   app.on('window-all-closed', () => app.quit());
