@@ -155,6 +155,16 @@ class Hub {
             "sweet", "hate", "fall", "night", "heart", "girl", "man", "life", "family", "the"
     };
 
+    /** Cuvinte din titlurile cu scene de iubire explicite / romantism pentru adulti. */
+    static final String[] ROMANCE_WORDS = {
+            "passion", "desire", "seduce", "seduction", "lust", "steamy", "forbidden", "affair", "one night",
+            "night stand", "temptation", "tempt", "sinful", "sin", "bed", "hot", "kiss", "lover", "mistress",
+            "obsession", "obsessed", "addicted", "dirty", "pleasure", "sexy", "intimate", "erotic", "crave",
+            "possess", "possessive", "touch", "naughty", "wild", "lingerie", "spicy", "night with", "hookup",
+            "bad boy", "stepbrother", "bodyguard", "professor", "my boss", "secret lover", "dangerous", "claim",
+            "pregnant by", "contract lover", "sugar daddy", "heat", "mate", "submit", "dominant", "taboo"
+    };
+
     private static class Job {
         final Site site; final String q;
         Job(Site site, String q) { this.site = site; this.q = q; }
@@ -187,12 +197,14 @@ class Hub {
     }
 
     /** Cautare adanca: toate cuvintele din DEEP_WORDS pe toate site-urile (dureaza mult, merge in fundal). */
-    void deepSearch() {
+    void deepSearch(boolean romanceOnly) {
         cancelSearch();
         searchQ = "";
         deepEmpty.clear();
         List<Site> l = searchableSites();
-        for (String w : DEEP_WORDS) for (Site s : l) searchQueue.add(new Job(s, w));
+        List<String> words = new ArrayList<>(java.util.Arrays.asList(ROMANCE_WORDS));
+        if (!romanceOnly) words.addAll(java.util.Arrays.asList(DEEP_WORDS));
+        for (String w : words) for (Site s : l) searchQueue.add(new Job(s, w));
         startSearch(true);
     }
 
@@ -721,7 +733,9 @@ class Hub {
         } else if (cmd.startsWith("search:")) {
             search(cmd.substring(7));
         } else if (cmd.equals("deep")) {
-            deepSearch();
+            deepSearch(false);
+        } else if (cmd.equals("deepromance")) {
+            deepSearch(true);
         } else if (cmd.equals("searchstop")) {
             stopSearch();
         } else if (cmd.equals("crawl")) {
