@@ -99,6 +99,7 @@ class Hub {
     private final Set<String> visited = new HashSet<>();
     private final Map<String, Integer> perHost = new HashMap<>();
     private String current = "";
+    private long crawlPageAt = 0;
     private int pagesDone = 0;
     private int newThisRun = 0;
     private final Runnable timeout = this::next;
@@ -138,7 +139,13 @@ class Hub {
     }
 
     /** Un raport de la agg.js (pagina vizibila sau robotul). */
-    void onReport(String json, boolean fromCrawler) {
+    void onReport(String json, boolean fromCrawler) { onReport(json, fromCrawler, null, 0); }
+
+    /**
+     * wantedUrl/openedAt: ce site ai deschis in pagina respectiva (sau ce a cerut robotul). Daca raportul vine
+     * de pe alta adresa imediat dupa deschidere, site-ul cerut s-a mutat acolo (ex. reelfren.com -> reelfren.net).
+     */
+    void onReport(String json, boolean fromCrawler, String wantedUrl, long openedAt) {
         JSONObject r;
         try { r = new JSONObject(json); } catch (Exception e) { return; }
         String host = r.optString("host"), page = r.optString("url");
@@ -149,6 +156,16 @@ class Hub {
             site = addSite("https://" + host + "/", "", false);
         }
         long now = System.currentTimeMillis();
+        String want = fromCrawler ? current : wantedUrl;
+        if (fromCrawler) openedAt = crawlPageAt;
+        if (want != null && !want.isEmpty() && now - openedAt < 60_000) {
+            Site ws = sites.get(hostOf(want));
+            if (ws != null && ws != site && !"ok".equals(ws.status) && !("mutat:" + host).equals(ws.status)) {
+                ws.status = "mutat:" + host;
+                scheduleSave();
+                schedulePush();
+            }
+        }
         JSONArray its = r.optJSONArray("items");
         boolean changed = false;
         if (its != null) {
@@ -203,7 +220,10 @@ class Hub {
             if (d.optBoolean("cf")) site.status = "cf";
             else if (d.optInt("domCards") + d.optInt("jsonItems") > 0) site.status = "ok";
             else if (r.optBoolean("done")) site.status = "gol";
+            else if ("cf".equals(site.status)) site.status = ""; // verificarea a trecut, pagina se incarca
         }
+        // orice film primit = site-ul merge (verificarea a trecut)
+        if (its != null && its.length() > 0 && !"ok".equals(site.status)) { site.status = "ok"; changed = true; }
         if (changed) { scheduleSave(); schedulePush(); }
         if (fromCrawler && crawling && r.optBoolean("done")) {
             ui.removeCallbacks(timeout);
@@ -214,8 +234,9 @@ class Hub {
     /** Un site din lista s-a mutat singur pe alta adresa: o adaugam ca site (cu filmele ei). */
     void onMoved(String fromUrl, String toUrl) {
         String to = hostOf(toUrl);
-        if (to.isEmpty() || sites.containsKey(to)) return;
         Site from = sites.get(hostOf(fromUrl == null ? "" : fromUrl));
+        if (from != null && !from.host.equals(to) && !"ok".equals(from.status)) from.status = "mutat:" + to;
+        if (to.isEmpty() || sites.containsKey(to)) { scheduleSave(); schedulePush(); return; }
         Site s = addSite(toUrl, from != null ? from.host : "", false);
         if (s != null) {
             s.url = toUrl;
@@ -271,6 +292,7 @@ class Hub {
         }
         visited.add(url);
         current = url;
+        crawlPageAt = System.currentTimeMillis();
         pagesDone++;
         crawler.loadUrl(url);
         pushStatus(null);

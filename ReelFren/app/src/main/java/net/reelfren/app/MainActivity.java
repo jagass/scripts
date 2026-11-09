@@ -58,6 +58,8 @@ public class MainActivity extends Activity {
     private Hub hub;
     private WebView crawler;
     private String aggJs = "";
+    /** Ce site a cerut fiecare pagina deschisa din lista (ca sa vedem daca s-a mutat pe alta adresa). */
+    private final java.util.Map<WebView, String[]> tabWanted = new java.util.WeakHashMap<>();
 
     private String homeUrl() { return HUB ? CATALOG_URL : HOME_URL; }
 
@@ -637,7 +639,10 @@ public class MainActivity extends Activity {
             return;
         }
         if (HUB && data.startsWith("hub:")) {
-            if (data.startsWith("hub:report:")) hub.onReport(data.substring(11), view == crawler);
+            if (data.startsWith("hub:report:")) {
+                String[] w = tabWanted.get(view);
+                hub.onReport(data.substring(11), view == crawler, w == null ? null : w[0], w == null ? 0 : Long.parseLong(w[1]));
+            }
             else hub.onCommand(data.substring(4));
             return;
         }
@@ -1024,6 +1029,7 @@ public class MainActivity extends Activity {
             Uri u = Uri.parse(url);
             if (u.getHost() != null) userAllowedHosts.add(u.getHost().toLowerCase());
             openTab(url, openJs);
+            tabWanted.put(webView, new String[]{url, String.valueOf(System.currentTimeMillis())});
         }
 
         @Override public void allowHost(String host) { userAllowedHosts.add(host); }

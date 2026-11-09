@@ -233,7 +233,8 @@
     sheet('<h3>Site-uri (' + sites.length + ')</h3>'
       + '<p style="color:#9a9aa8;margin:0 0 6px">Site-urile noi din meniuri se adaugă singure. Cele oprite nu apar în listă și nu sunt căutate.</p>'
       + sites.map(function (s) {
-        return '<div class="li"><div class="x">' + esc(s.host) + '<small>' + s.n + ' filme · ' + (stTxt[s.st] || 'necăutat încă') + '</small></div>'
+        var st = /^mutat:/.test(s.st || '') ? '<span class="st-ok">se mută pe ' + esc(s.st.slice(6)) + ' (filmele sunt acolo)</span>' : (stTxt[s.st] || 'necăutat încă');
+        return '<div class="li"><div class="x">' + esc(s.host) + '<small>' + s.n + ' filme · ' + st + '</small></div>'
           + '<button data-site="open:' + esc(s.host) + '">Deschide</button>'
           + '<button data-site="' + (s.on ? 'off' : 'on') + ':' + esc(s.host) + '" class="' + (s.on ? 'on' : '') + '">' + (s.on ? 'Pornit' : 'Oprit') + '</button></div>';
       }).join('')
