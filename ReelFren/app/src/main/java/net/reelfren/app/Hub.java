@@ -46,6 +46,8 @@ class Hub {
         /** incarca url in pagina ascunsa, cu startJs rulat la inceputul fiecarei pagini (null = fara) */
         void loadWith(WebView w, String startJs, String url);
         void destroyHidden(WebView w);
+        /** inchide pagina de sus (cea cu eroarea) */
+        void closeTop();
         void toCatalog(String msg);
         void openUrl(String url, String openJs);
         void allowHost(String host);
@@ -86,6 +88,8 @@ class Hub {
         long t;
         long h;
         int hs; // 0 = fara amprenta, 1 = gata, 2 = esuat, 3 = in lucru
+        /** site-ul a aratat o pagina de eroare cand l-ai deschis (ex. "Data Not Found / No Cache Available") */
+        boolean bad;
     }
 
     private final Context ctx;
@@ -655,8 +659,8 @@ class Hub {
                 if (s != null) s.count++;
                 if (s != null && !s.on) continue;
                 first = Math.min(first, it.t);
-                if (best == null || it.eps > best.eps
-                        || (it.eps == best.eps && !it.href.isEmpty() && best.href.isEmpty())) best = it;
+                if (best == null || (best.bad && !it.bad) || (it.bad == best.bad && (it.eps > best.eps
+                        || (it.eps == best.eps && !it.href.isEmpty() && best.href.isEmpty())))) best = it;
             }
             if (best == null) continue;
             try {
@@ -678,6 +682,7 @@ class Hub {
                     alts.put(new JSONArray().put(it.k).put(it.host).put(it.eps).put(it.title));
                 }
                 o.put("ks", ks);
+                if (best.bad) o.put("bd", 1);
                 if (alts.length() > 0) o.put("al", alts);
                 out.put(o);
             } catch (Exception ignored) { }
@@ -790,9 +795,18 @@ class Hub {
         }
     }
 
+    private String lastOpened = "";
+    private long lastOpenAt = 0;
+
     private void open(String k) {
         Item it = items.get(k);
         if (it == null) return;
+        openItem(it);
+    }
+
+    private void openItem(Item it) {
+        lastOpened = it.k;
+        lastOpenAt = System.currentTimeMillis();
         if (!it.href.isEmpty()) {
             owner.openUrl(it.href, null);
             return;
@@ -806,6 +820,43 @@ class Hub {
             String page = it.page.isEmpty() ? "https://" + it.host + "/" : it.page;
             owner.openUrl(page, "window.__dfOpen=" + o + ";");
         } catch (Exception ignored) { }
+    }
+
+    /** Acelasi film pe alte site-uri (acelasi poster), cel mai bun primul. */
+    private List<Item> sameDrama(Item it) {
+        List<Item> l = new ArrayList<>();
+        for (Item o : items.values()) {
+            if (o == it || o.bad) continue;
+            Site s = sites.get(o.host);
+            if (s != null && !s.on) continue;
+            boolean same = o.n.equals(it.n)
+                    || (o.hs == 1 && it.hs == 1 && Long.bitCount(o.h ^ it.h) <= SAME_DIST && Long.bitCount(it.h) >= 6 && Long.bitCount(it.h) <= 58);
+            if (same) l.add(o);
+        }
+        l.sort((a, b) -> b.eps - a.eps);
+        return l;
+    }
+
+    /** Pagina deschisa din lista arata o eroare a site-ului: incercam alt site sau cautam filmul dupa titlu. */
+    void onBroken(String url) {
+        Item it = null;
+        if (System.currentTimeMillis() - lastOpenAt < 10 * 60_000) it = items.get(lastOpened);
+        if (it == null) for (Item o : items.values()) if (!o.href.isEmpty() && o.href.equals(url)) { it = o; break; }
+        if (it == null || it.bad) return;
+        it.bad = true;
+        scheduleSave();
+        schedulePush();
+        List<Item> alts = sameDrama(it);
+        owner.closeTop();
+        if (!alts.isEmpty()) {
+            Item a = alts.get(0);
+            owner.toast("Filmul nu e disponibil pe " + it.host + ". \u00cel deschid de pe " + a.host + ".");
+            openItem(a);
+        } else {
+            owner.toast("Filmul nu e disponibil pe " + it.host + ". \u00cel caut pe celelalte site-uri\u2026");
+            owner.toCatalog("hub:setq:" + it.title);
+            search(it.title);
+        }
     }
 
     private String diagText() {
@@ -854,7 +905,7 @@ class Hub {
             for (Item it : items.values()) {
                 is.put(new JSONArray().put(it.k).put(it.host).put(it.n).put(it.img).put(it.title)
                         .put(it.eps).put(it.href).put(it.oc).put(it.page).put(it.t)
-                        .put(it.hs == 1 ? Long.toHexString(it.h) : (it.hs == 2 ? "x" : "")));
+                        .put(it.hs == 1 ? Long.toHexString(it.h) : (it.hs == 2 ? "x" : "")).put(it.bad ? 1 : 0));
             }
             o.put("items", is);
             data = o.toString();
@@ -900,6 +951,7 @@ class Hub {
                 String h = a.optString(10);
                 if (h.equals("x")) it.hs = 2;
                 else if (!h.isEmpty()) { it.h = Long.parseUnsignedLong(h, 16); it.hs = 1; }
+                it.bad = a.optInt(11) == 1;
                 items.put(it.k, it);
             }
         } catch (Exception ignored) { }

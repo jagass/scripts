@@ -505,11 +505,25 @@
     setTimeout(tick, 800);
   }
 
+  // ---------- pagina de eroare a site-ului (filmul nu e disponibil acolo) ----------
+  var BROKEN = /data not found|no cache available|drama not found|video not found|series not found|content not found|not available in your region|no episodes? (found|available)|episode not found|failed to load (data|drama|video)/i;
+  function checkBroken() {
+    if (window.__dfCrawl || window.__dfSearch || window.__dfBrokenSent) return;
+    var t = (document.body && document.body.innerText) || '';
+    if (t.length > 4000 || !BROKEN.test(t)) return;
+    var v = document.querySelector('video');
+    if (v && (v.currentSrc || v.src)) return;
+    window.__dfBrokenSent = 1;
+    send('hub:broken:' + location.href);
+  }
+
   // ---------- pornire ----------
   function boot() {
     openRequested();
     report(false);
     if (window.__dfSearch) searchMode();
+    setTimeout(checkBroken, 2500);
+    setTimeout(checkBroken, 7000);
     setInterval(function () {
       if (window.__dfSearch) return;
       if (window.__dfCrawl && !crawlStarted) crawl();

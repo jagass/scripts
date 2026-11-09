@@ -100,6 +100,9 @@
         groups = o.groups || []; sites = o.sites || []; totalItems = o.items || 0;
         hitQ = o.hq || ''; hitSet = {}; (o.hits || []).forEach(function (k) { hitSet[k] = 1; });
         fillSites(); apply(true);
+      } else if (d.indexOf('hub:setq:') === 0) {
+        // filmul nu mergea pe site-ul lui: il cautam dupa titlu pe toate site-urile
+        $('q').value = d.slice(9); setView('all'); window.scrollTo(0, 0);
       } else if (d.indexOf('hub:status:') === 0) {
         status(JSON.parse(d.slice(11)));
       }
@@ -204,6 +207,7 @@
         + '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(g.im) + '" data-k="' + esc(g.k) + '">'
         + (g.ep ? '<span class="ep">' + g.ep + ' EP</span>' : '')
         + (isNew ? '<span class="nw">NOU</span>' : '')
+        + (g.bd ? '<span class="nw" style="background:#a33;top:26px">⚠ indisponibil</span>' : '')
         + '<div class="t">' + esc(g.ti) + '</div>'
         + '<div class="m"><span>' + esc(g.ho.replace('.dramafren.org', '')) + (g.al ? ' <b class="al">+' + g.al.length + '</b>' : '') + '</span>'
         + '<span class="mk"><span data-a="w" class="' + (marked(watch, g) ? 'on' : '') + '">📌</span><span data-a="s" class="' + (marked(seen, g) ? 'on' : '') + '">👁</span></span></div>'

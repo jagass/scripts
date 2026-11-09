@@ -642,6 +642,11 @@ public class MainActivity extends Activity {
             return;
         }
         if (HUB && data.startsWith("hub:")) {
+            if (data.startsWith("hub:broken:")) {
+                // doar pagina vizibila, deschisa din lista (nu robotul / cautarea)
+                if (view == webView && tabs.size() > 1) hub.onBroken(data.substring(11));
+                return;
+            }
             if (data.startsWith("hub:report:")) {
                 String[] w = tabWanted.get(view);
                 hub.onReport(data.substring(11), view, w == null ? null : w[0], w == null ? 0 : Long.parseLong(w[1]));
@@ -1048,6 +1053,8 @@ public class MainActivity extends Activity {
             root.removeView(w);
             w.destroy();
         }
+
+        @Override public void closeTop() { closeTab(); }
 
         @Override public void toCatalog(String msg) {
             if (tabs.isEmpty()) return;
