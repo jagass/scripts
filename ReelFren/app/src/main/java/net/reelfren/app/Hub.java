@@ -118,6 +118,12 @@ class Hub {
     private final Runnable save = this::saveNow;
     private int hashing = 0;
 
+    // "Verifica toate": deschide site-urile pe rand, ca sa treci verificarea Cloudflare la fiecare
+    private final ArrayDeque<String> verifyQueue = new ArrayDeque<>();
+    private String verifyHost = "";
+    private int verifyTotal = 0, verifyDone = 0;
+    private final Runnable verifyTimeout = () -> verifyNext(verifyHost, false);
+
     Hub(Context ctx, Owner owner) {
         this.ctx = ctx;
         this.owner = owner;
@@ -393,6 +399,12 @@ class Hub {
             else if (d.optInt("domCards") + d.optInt("jsonItems") > 0) site.status = "ok";
             else if (r.optBoolean("done")) site.status = "gol";
             else if ("cf".equals(site.status)) site.status = ""; // verificarea a trecut, pagina se incarca
+            // "Verifica toate": pagina vizibila a site-ului curent s-a deschis fara verificare -> urmatorul
+            if (!verifyHost.isEmpty() && !fromCrawler && !fromSearch && !d.optBoolean("cf")
+                    && (host.equals(verifyHost) || verifyHost.equals(hostOf(wantedUrl == null ? "" : wantedUrl)))) {
+                final String vh = verifyHost;
+                ui.postDelayed(() -> verifyNext(vh, true), 1500);
+            }
         }
         // orice film primit = site-ul merge (verificarea a trecut)
         if (its != null && its.length() > 0 && !"ok".equals(site.status)) { site.status = "ok"; changed = true; }
@@ -515,6 +527,10 @@ class Hub {
             o.put("sdone", searchDone);
             o.put("stotal", searchTotal);
             o.put("sfound", searchFound);
+            o.put("verifying", !verifyHost.isEmpty() || !verifyQueue.isEmpty());
+            o.put("vhost", verifyHost);
+            o.put("vdone", verifyDone);
+            o.put("vtotal", verifyTotal);
             owner.toCatalog("hub:status:" + o);
         } catch (Exception ignored) { }
     }
@@ -788,11 +804,79 @@ class Hub {
         } else if (cmd.equals("diag")) {
             owner.copyText("DramaFren diagnostic", diagText());
             owner.toast("Diagnosticul e copiat. Lipește-l în chat.");
-        } else if (cmd.equals("clear")) {
-            items.clear();
+        } else if (cmd.equals("verify")) {
+            startVerify();
+        } else if (cmd.equals("verifystop")) {
+            stopVerify();
+            owner.toast("Am oprit verificarea site-urilor.");
+        } else if (cmd.equals("clear") || cmd.startsWith("clear:")) {
+            // filmele de la "De vazut" / "Vazute" (cheile trimise de lista) raman
+            Set<String> keep = new HashSet<>();
+            if (cmd.startsWith("clear:")) {
+                try {
+                    JSONArray a = new JSONArray(cmd.substring(6));
+                    for (int i = 0; i < a.length(); i++) keep.add(a.optString(i));
+                } catch (Exception ignored) { }
+            }
+            items.values().removeIf(it -> !keep.contains(it.k));
             scheduleSave();
             pushData(false);
         }
+    }
+
+    // ------------------------------------------------------------------ verifica toate site-urile
+
+    /** Deschide pe rand fiecare site pornit (intai cele care cer verificare); trece singur la urmatorul. */
+    private void startVerify() {
+        stopVerify();
+        List<String> cf = new ArrayList<>(), rest = new ArrayList<>();
+        for (Site s : sites.values()) {
+            if (!s.on || s.status.startsWith("mutat:")) continue;
+            ("cf".equals(s.status) ? cf : rest).add(s.host);
+        }
+        verifyQueue.addAll(cf);
+        verifyQueue.addAll(rest);
+        verifyTotal = verifyQueue.size();
+        verifyDone = 0;
+        if (verifyTotal == 0) { owner.toast("Niciun site pornit."); return; }
+        owner.toast("Deschid pe rând " + verifyTotal + " site-uri. Dacă apare căsuța de verificare, bifeaz-o; trec singur la următorul.");
+        verifyOpenNext();
+    }
+
+    private void verifyOpenNext() {
+        ui.removeCallbacks(verifyTimeout);
+        String h = verifyQueue.poll();
+        Site s = h == null ? null : sites.get(h);
+        if (h != null && s == null) { verifyDone++; verifyOpenNext(); return; }
+        if (s == null) {
+            verifyHost = "";
+            owner.toast("Gata: am trecut prin toate cele " + verifyTotal + " site-uri.");
+            pushStatus(null);
+            pushData(false);
+            return;
+        }
+        verifyHost = h;
+        owner.openUrl(s.url, null);
+        ui.postDelayed(verifyTimeout, 60_000);
+        pushStatus(null);
+    }
+
+    /** Site-ul h s-a deschis (ok) sau n-a raspuns in 60 s: inchidem pagina lui si trecem mai departe. */
+    private void verifyNext(String h, boolean ok) {
+        if (h.isEmpty() || !h.equals(verifyHost)) return;
+        ui.removeCallbacks(verifyTimeout);
+        verifyHost = "";
+        verifyDone++;
+        if (!ok) owner.toast(h + " nu s-a deschis în 60 de secunde. Trec la următorul.");
+        owner.closeTop();
+        ui.postDelayed(this::verifyOpenNext, 500);
+    }
+
+    private void stopVerify() {
+        verifyQueue.clear();
+        ui.removeCallbacks(verifyTimeout);
+        verifyHost = "";
+        pushStatus(null);
     }
 
     private String lastOpened = "";

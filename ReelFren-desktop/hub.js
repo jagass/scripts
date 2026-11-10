@@ -57,6 +57,8 @@ class Hub {
     this.hashing = 0; this.hashQueue = []; this.hashActive = 0;
     this.pushTimer = null; this.saveTimer = null; this.lastPush = 0;
     this.lastOpened = ''; this.lastOpenAt = 0;
+    // "Verifica toate": site-urile deschise pe rand pentru verificarea Cloudflare
+    this.verifyQueue = []; this.verifyHost = ''; this.verifyTotal = 0; this.verifyDone = 0; this.verifyTimer = null;
     this.load();
     SEEDS.forEach((s) => this.addSite(s, '', false));
     for (const h of this.sites.keys()) owner.allowHost(h);
@@ -130,6 +132,11 @@ class Hub {
       else if ((d.domCards || 0) + (d.jsonItems || 0) > 0) site.status = 'ok';
       else if (r.done) site.status = 'gol';
       else if (site.status === 'cf') site.status = '';
+      if (this.verifyHost && !fromCrawler && !fromSearch && !d.cf
+        && (host === this.verifyHost || hostOf(wantedUrl || '') === this.verifyHost)) {
+        const vh = this.verifyHost;
+        setTimeout(() => this.verifyNext(vh, true), 1500);
+      }
     }
     if (its.length > 0 && site.status !== 'ok') { site.status = 'ok'; changed = true; }
     const job = fromSearch ? this.searcherJob.get(from) : null;
@@ -309,6 +316,8 @@ class Hub {
       left: this.queue.length, added: this.newThisRun, hashing: this.hashing, text: text || '',
       searching: this.searching, deep: this.deep, sq: this.deep ? (cur ? cur.q : '') : this.searchQ,
       sdone: this.searchDone, stotal: this.searchTotal, sfound: this.searchFound,
+      verifying: !!this.verifyHost || this.verifyQueue.length > 0, vhost: this.verifyHost,
+      vdone: this.verifyDone, vtotal: this.verifyTotal,
     }));
   }
 
@@ -440,9 +449,54 @@ class Hub {
     } else if (cmd === 'diag') {
       this.owner.copyText(this.diagText());
       this.owner.toast('Diagnosticul e copiat. Lipește-l în chat.');
-    } else if (cmd === 'clear') {
-      this.items.clear(); this.scheduleSave(); this.pushData();
+    } else if (cmd === 'verify') {
+      this.startVerify();
+    } else if (cmd === 'verifystop') {
+      this.stopVerify(); this.owner.toast('Am oprit verificarea site-urilor.');
+    } else if (cmd === 'clear' || cmd.startsWith('clear:')) {
+      // filmele de la "De vazut" / "Vazute" (cheile trimise de lista) raman
+      let keep = new Set();
+      if (cmd.startsWith('clear:')) { try { keep = new Set(JSON.parse(cmd.slice(6))); } catch (e) { } }
+      for (const k of [...this.items.keys()]) if (!keep.has(k)) this.items.delete(k);
+      this.scheduleSave(); this.pushData();
     }
+  }
+
+  // ---------------------------------------------------------------- verifica toate site-urile
+  startVerify() {
+    this.stopVerify();
+    const all = [...this.sites.values()].filter((s) => s.on && !String(s.status).startsWith('mutat:'));
+    this.verifyQueue = all.filter((s) => s.status === 'cf').concat(all.filter((s) => s.status !== 'cf')).map((s) => s.host);
+    this.verifyTotal = this.verifyQueue.length; this.verifyDone = 0;
+    if (!this.verifyTotal) { this.owner.toast('Niciun site pornit.'); return; }
+    this.owner.toast('Deschid pe rând ' + this.verifyTotal + ' site-uri. Dacă apare căsuța de verificare, bifeaz-o; trec singur la următorul.');
+    this.verifyOpenNext();
+  }
+  verifyOpenNext() {
+    clearTimeout(this.verifyTimer);
+    let s = null;
+    while (this.verifyQueue.length && !s) { s = this.sites.get(this.verifyQueue.shift()); if (!s) this.verifyDone++; }
+    if (!s) {
+      this.verifyHost = '';
+      this.owner.toast('Gata: am trecut prin toate cele ' + this.verifyTotal + ' site-uri.');
+      this.pushStatus(null); this.pushData();
+      return;
+    }
+    this.verifyHost = s.host;
+    this.owner.openUrl(s.url, null);
+    this.verifyTimer = setTimeout(() => this.verifyNext(s.host, false), 60000);
+    this.pushStatus(null);
+  }
+  verifyNext(h, ok) {
+    if (!h || h !== this.verifyHost) return;
+    clearTimeout(this.verifyTimer);
+    this.verifyHost = ''; this.verifyDone++;
+    if (!ok) this.owner.toast(h + ' nu s-a deschis în 60 de secunde. Trec la următorul.');
+    this.owner.closeTop();
+    setTimeout(() => this.verifyOpenNext(), 500);
+  }
+  stopVerify() {
+    this.verifyQueue = []; clearTimeout(this.verifyTimer); this.verifyHost = ''; this.pushStatus(null);
   }
   openItem(it) {
     this.lastOpened = it.k; this.lastOpenAt = Date.now();

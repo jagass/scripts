@@ -642,11 +642,58 @@
   function catalogVisible() { return !!catEl && catEl.style.display !== 'none'; }
 
   // cautarea din lista ta (separata de filtrul paginilor site-ului): cuvintele de aici + cele din Filtru
-  var catQuery = '';
+  var catQuery = '', catGen = '';
+
+  // ---------- cautare dupa gen (cuvinte din titlu; acelasi tabel ca in DramaFren) ----------
+  var GENRES = [
+    { n: 'Scene explicite 18+', e: '🔥', d: 'passion, desire, seduce, one night, mistress, affair, lust…',
+      k: 'passion*, desire*, seduc*, steamy, lust*, one night, night with, in bed, bed, mistress*, affair*, forbidden, sinful, sin, temptation, tempt*, intimate, erotic*, sex, sexy, naughty, hot, obsess*, possess*, crav*, addicted, sugar daddy, pleasure*, dirty, spicy, taboo, lover*, lingerie, hookup, indulg*, ravish*, scandal*, heat' },
+    { n: 'CEO / miliardar', e: '💼', d: 'CEO, billionaire, boss, tycoon, heir…', k: 'ceo, billionaire*, millionaire*, trillionaire*, boss*, tycoon*, president, heir, heiress, rich*, mogul, magnate, chairman, wealth*, young master' },
+    { n: 'Răzbunare', e: '🗡', d: 'revenge, betrayal, regret, payback…', k: 'reveng*, betray*, vengean*, payback, regret*, karma, scorn*, cheat*, aveng*, retribution, ruthless, too late' },
+    { n: 'Căsătorie / contract', e: '💍', d: 'contract, marriage, wife, bride, divorce…', k: 'contract*, marri*, marry, wife, wives, husband*, bride*, wedding*, groom, spouse*, divorc*' },
+    { n: 'Romantic', e: '💕', d: 'love, heart, crush, sweet, kiss…', k: 'love*, romance, romantic, heart*, crush*, darling, sweet*, kiss*, fall for, falling, boyfriend, girlfriend' },
+    { n: 'Copii / sarcină', e: '👶', d: 'pregnant, baby, twins, mommy, daddy…', k: 'pregnan*, baby, babies, twin*, triplet*, quadruplet*, quintuplet*, mommy, mom, daddy, dad, kid*, child*' },
+    { n: 'Vârcolaci (alpha)', e: '🐺', d: 'alpha, wolf, luna, lycan, mate…', k: 'alpha*, wolf, wolves, werewolf*, luna, lycan*, pack, mate, mated, omega' },
+    { n: 'Fantasy / vampiri', e: '🧛', d: 'vampire, dragon, witch, demon, goddess…', k: 'vampir*, dragon*, witch*, demon*, immortal*, god, goddess*, magic*, fairy, fae, angel*, devil*, monster*, curse*, mermaid*' },
+    { n: 'Renaștere / a doua șansă', e: '🔁', d: 'reborn, rebirth, second chance, time travel…', k: 'reborn, rebirth, second chance, again, back to, time travel*, transmigrat*, reincarnat*, return*, redo, second life, start over' },
+    { n: 'Regal / istoric', e: '👑', d: 'queen, king, prince, empress, palace…', k: 'queen*, king*, prince*, princess*, empress*, emperor*, royal*, palace*, duke*, duchess*, concubine*, throne*, dynasty, kingdom*' },
+    { n: 'Identitate ascunsă', e: '🎭', d: 'hidden, secret, disguise, true identity…', k: 'hidden, secret*, disguis*, undercover, true identity, real identity, mysterious, incognito, unknown, fake, pretend*, masked, double life' },
+    { n: 'Acțiune / luptă', e: '🥊', d: 'martial, war god, warrior, legend, master…', k: 'martial, war god, god of war, warrior*, fight*, legend*, invincible, master, assassin*, soldier*, mercenar*, kung fu, battle*, dragon king' },
+    { n: 'Mafia / pericol', e: '🖤', d: 'mafia, don, gangster, bad boy, dangerous…', k: 'mafia*, don, gangster*, mob, bad boy, dangerous, cartel*, godfather' },
+    { n: 'Școală / campus', e: '🎓', d: 'school, campus, college, student…', k: 'school*, campus, college, student*, teacher*, academy, university, professor*' },
+    { n: 'Doctor / spital', e: '🩺', d: 'doctor, surgeon, nurse, hospital…', k: 'doctor*, surgeon*, nurse*, hospital*, medical' }
+  ];
+  GENRES.forEach(function (G) {
+    var src = G.k.split(',').map(function (w) { return w.trim(); }).filter(Boolean).map(function (w) {
+      var pre = /\*$/.test(w);
+      w = w.replace(/\*$/, '').replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/ +/g, '\\s+');
+      return w + (pre ? '' : '(?![a-z0-9])');
+    }).join('|');
+    G.re = new RegExp('(^|[^a-z0-9])(' + src + ')');
+  });
+  function genNorm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function findGenre(v) {
+    var x = genNorm(v.trim()).replace(/^[^a-z0-9]+/, '');
+    if (!x) return null;
+    for (var i = 0; i < GENRES.length; i++) if (genNorm(GENRES[i].n) === x || genNorm(GENRES[i].e + ' ' + GENRES[i].n) === genNorm(v.trim())) return GENRES[i];
+    if (x.length >= 3) for (var j = 0; j < GENRES.length; j++) if (genNorm(GENRES[j].n).indexOf(x) >= 0) return GENRES[j];
+    return null;
+  }
+  function itemTitle(it) { return it.n || it.k.split('/')[1].replace(/^\d+-?/, ''); }
+  function genreFilter() {
+    var v = catGen.trim();
+    if (!v) return null;
+    var G = findGenre(v);
+    if (G) return function (it) { return G.re.test(genNorm(itemTitle(it))); };
+    var ws = genNorm(v).split(/\s+/).filter(Boolean);
+    return function (it) { var t = genNorm(itemTitle(it)); for (var i = 0; i < ws.length; i++) if (t.indexOf(ws[i]) < 0) return false; return true; };
+  }
+
   function catalogFiltered() {
     var min = state.min === '' ? -1 : parseInt(state.min, 10);
     var max = state.max === '' ? 1e9 : parseInt(state.max, 10);
     var words = searchWords().concat(norm(catQuery).split(' ').filter(Boolean));
+    var gf = genreFilter();
     var list = cat.items.filter(function (it) {
       // lista mare: fara serialele vazute; "Vazute": DOAR cele vazute; "De vazut": DOAR cele puse deoparte
       if (showWatch) { if (!inWatch(it.k) || isSeen(it.k)) return false; }
@@ -657,6 +704,7 @@
       if (!e && state.min !== '') return false;
       if (state.plats.length && state.plats.indexOf(it.p) < 0) return false;
       if (words.length && !titleMatches(it.n || it.k.split('/')[1].replace(/^\d+-?/, ''), words)) return false;
+      if (gf && !gf(it)) return false;
       return true;
     });
     if (state.sort === 'ep-asc') list.sort(function (a, b) { return (a.e || 0) - (b.e || 0); });
@@ -701,7 +749,7 @@
     if (!catEl) return;
     catNeedsRender = false;
     lastCatSig = JSON.stringify(state);
-    catList = isActive() || catQuery.trim() || seenCount() || showSeen || showWatch ? catalogFiltered() : cat.items;
+    catList = isActive() || catQuery.trim() || catGen.trim() || seenCount() || showSeen || showWatch ? catalogFiltered() : cat.items;
     catShown = 0;
     catGrid.innerHTML = '';
     renderMore();
@@ -743,6 +791,14 @@
         '.rf-btns{display:flex;gap:4px;margin:0 0 8px}.rf-btns .rf-seen{margin:0;flex:1}' +
         '.rf-watch{flex:1;padding:5px 0;border-radius:8px;border:1px solid #334155;background:#111827;color:#cbd5e1;font:600 11px system-ui}' +
         '.rf-watch.on{background:#1e3a8a;border-color:#60a5fa;color:#fff}' +
+        // butoanele De vazut / Vazut: mai mari si cu contrast, ca sa se vada si sa le nimeresti usor
+        '.rf-btns{gap:5px!important}.rf-btns button{min-height:34px;font-size:12px!important;border:1px solid #64748b!important;background:#1e293b!important;color:#f1f5f9!important}' +
+        '.rf-btns .rf-watch.on{background:#2563eb!important;border-color:#bfdbfe!important}' +
+        '#rf-cat-gen{margin:0 12px 8px;padding:10px;border-radius:10px;border:1px solid #334155;background:#111827;color:#fff;font-size:15px}' +
+        '#rf-cat-gl{display:none;margin:0 12px 8px;max-height:45vh;overflow:auto;border:1px solid #334155;border-radius:10px;background:#0f172a}' +
+        '#rf-cat-gl.show{display:block}' +
+        '#rf-cat-gl button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-bottom:1px solid #1f2937;background:none;color:#e5e7eb;font:14px system-ui}' +
+        '#rf-cat-gl small{display:block;color:#94a3b8;font-size:11.5px;margin-top:2px}#rf-cat-gl .gh{padding:8px 12px;color:#94a3b8;font-size:12px}' +
         '#rf-cat-bar button{flex:1;padding:8px 4px;border-radius:10px;border:1px solid #334155;background:#111827;color:#e5e7eb;font:600 12px system-ui}' +
         '#rf-cat-bar button.on{background:#0f766e;border-color:#5eead4;color:#fff}' +
 
@@ -761,6 +817,7 @@
         '<div id="rf-cat-bar"><button id="rf-cat-new">\uD83D\uDD04 Caut\u0103 noi</button><button id="rf-cat-all">\u2B07\uFE0F \u00CEncarc\u0103 tot</button>' +
         '<button id="rf-cat-seen"></button><button id="rf-cat-watch"></button><button id="rf-cat-backup">\uD83D\uDCBE Backup</button></div>' +
         '<input id="rf-cat-q" type="search" placeholder="Caută după titlu…">' +
+        '<input id="rf-cat-gen" type="search" placeholder="🎭 Gen: CEO, răzbunare, 18+…" autocomplete="off"><div id="rf-cat-gl"></div>' +
         '<div id="rf-cat-scroll"><div id="rf-cat-grid"></div></div>';
       document.body.appendChild(catEl);
       tapToClick(catEl);
@@ -776,6 +833,37 @@
         clearTimeout(catRenderTimer);
         catRenderTimer = setTimeout(function () { renderCatalog(); catEl.querySelector('#rf-cat-scroll').scrollTop = 0; }, 120);
       });
+      // gen: lista de sugestii apare cand atingi campul; alegerea filtreaza lista
+      var gen = catEl.querySelector('#rf-cat-gen'), gl = catEl.querySelector('#rf-cat-gl');
+      function genCount(G) { var n = 0; cat.items.forEach(function (it) { if (G.re.test(genNorm(itemTitle(it)))) n++; }); return n; }
+      function showGenres() {
+        var v = genNorm(gen.value.trim()), exact = findGenre(gen.value);
+        gl.innerHTML = '<div class="gh">Genuri căutate după cuvintele din titlu. Poți scrie și altceva (ex. „mafia”, „twins”).</div>' +
+          GENRES.filter(function (G) { return !v || exact || genNorm(G.n + ' ' + G.d).indexOf(v) >= 0; }).map(function (G) {
+            return '<button type="button" data-g="' + esc(G.n) + '">' + G.e + ' ' + esc(G.n) + ' <span style="color:#94a3b8">(' + genCount(G) + ')</span><small>' + esc(G.d) + '</small></button>';
+          }).join('');
+        gl.className = 'show';
+      }
+      function genChanged() {
+        catGen = gen.value;
+        renderCatalog(); catEl.querySelector('#rf-cat-scroll').scrollTop = 0;
+      }
+      gen.addEventListener('focus', showGenres);
+      gen.addEventListener('input', function () {
+        showGenres(); clearTimeout(catRenderTimer); catRenderTimer = setTimeout(genChanged, 200);
+      });
+      gen.addEventListener('keydown', function (e) { if (e.key === 'Enter') { gl.className = ''; gen.blur(); } });
+      gl.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+      gl.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-g]');
+        if (!b) return;
+        var G = findGenre(b.getAttribute('data-g'));
+        gen.value = G.e + ' ' + G.n;
+        gl.className = '';
+        gen.blur();
+        genChanged();
+      });
+      catEl.addEventListener('pointerdown', function (e) { if (!e.target.closest('#rf-cat-gl') && e.target !== gen) gl.className = ''; });
       catEl.querySelector('#rf-cat-site').addEventListener('click', function () { hideCatalog(true); });
       // incarcare doar la cererea ta: serialele noi / toata lista; acelasi buton opreste
       catEl.querySelector('#rf-cat-new').addEventListener('click', function () { loadAll(loading ? null : 'new'); });

@@ -27,9 +27,20 @@
   .ep { position:absolute; top:5px; left:5px; background:rgba(0,0,0,.75); color:#fff; font-size:11px; font-weight:600; padding:2px 6px; border-radius:6px; }
   .nw { position:absolute; top:5px; right:5px; background:var(--ok); color:#fff; font-size:10px; font-weight:700; padding:2px 5px; border-radius:6px; }
   .al { color:#ffcf5a; }
-  .mk { display:flex; gap:4px; }
-  .mk span { padding:2px 4px; border-radius:6px; background:#2a2a33; font-size:12px; }
-  .mk span.on { background:var(--acc); }
+  /* butoanele De vazut / Vazut: mari, peste poster, mereu vizibile */
+  .pw { position:relative; }
+  .mk { position:absolute; right:5px; bottom:5px; display:flex; gap:6px; z-index:2; }
+  .mk button { width:36px; height:36px; padding:0; border-radius:50%; font-size:17px; line-height:1;
+    background:rgba(0,0,0,.72); border:2px solid rgba(255,255,255,.85); box-shadow:0 1px 6px rgba(0,0,0,.6); }
+  .mk button.on { background:var(--acc); border-color:#fff; }
+  #gen { flex:1; min-width:140px; }
+  #genX { padding:7px 11px; }
+  .gl { display:none; margin-top:6px; max-height:52vh; overflow:auto; background:#17171d; border:1px solid var(--line); border-radius:10px; }
+  .gl.show { display:block; }
+  .gl .gi { display:block; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line); border-radius:0; background:none; padding:9px 12px; }
+  .gl .gi:last-child { border-bottom:0; }
+  .gl .gi small { display:block; color:var(--mut); font-size:11.5px; margin-top:2px; }
+  .gl .gh { padding:8px 12px; color:var(--mut); font-size:12px; }
   #more { display:block; margin:6px auto 24px; }
   .empty { padding:30px 20px; color:var(--mut); text-align:center; line-height:1.6; }
   .sheet { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:10; display:none; align-items:flex-end; }
@@ -58,6 +69,11 @@
       <option value="ti">Titlu A-Z</option>
     </select>
   </div>
+  <div class="row">
+    <input id="gen" type="search" placeholder="🎭 Gen: CEO, răzbunare, 18+…" autocomplete="off">
+    <button id="genX" style="display:none" aria-label="Șterge genul">✕</button>
+  </div>
+  <div id="genList" class="gl"></div>
   <div class="row">
     <button id="vAll" class="on">Toate</button>
     <button id="vWatch">📌 De văzut</button>
@@ -140,6 +156,7 @@
     if (s.searching && s.deep) t = '🔎 căutare adâncă: „' + s.sq + '” · ' + s.sdone + '/' + s.stotal + ' · +' + s.sfound + ' filme noi (atinge aici ca s-o oprești) · ' + t;
     else if (s.searching) t = '🔎 caut „' + s.sq + '” pe site-uri: ' + s.sdone + '/' + s.stotal + ' · +' + s.sfound + ' filme noi · ' + t;
     if (s.hashing > 0) t += ' · compar postere: ' + s.hashing;
+    if (s.verifying) t = '✅ verific site-urile: ' + Math.min(s.vdone + 1, s.vtotal) + '/' + s.vtotal + (s.vhost ? ' (' + s.vhost + ')' : '') + ' · atinge aici ca s-o oprești · ' + t;
     $('status').textContent = t;
   }
 
@@ -168,7 +185,7 @@
   function apply(keepScroll) {
     var q = norm($('q').value.trim()), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
     var words = q ? q.split(/\s+/) : [];
-    var useHits = q && hitQ && norm(hitQ) === q;
+    var gf = genreFilter();
     filtered = groups.filter(function (g) {
       var w = marked(watch, g), s = marked(seen, g);
       if (view === 'watch') { if (!w || s) return false; }
@@ -176,11 +193,12 @@
       else if (s) return false;
       if (min && g.ep < min) return false;
       if (site && g.ho !== site && !(g.al || []).some(function (a) { return a[1] === site; })) return false;
-      g._hit = useHits && isHit(g);
-      if (words.length && !g._hit) {
-        var tt = norm(g.ti + ' ' + (g.al || []).map(function (a) { return a[3]; }).join(' '));
-        for (var i = 0; i < words.length; i++) if (!wordIn(tt, words[i])) return false;
+      // cautarea: raman doar filmele al caror titlu contine toate cuvintele scrise
+      if (words.length) {
+        var tt = norm(g.ti);
+        for (var i = 0; i < words.length; i++) if (tt.indexOf(words[i]) < 0) return false;
       }
+      if (gf && !gf(g)) return false;
       return true;
     });
     var cmp = sort === 'ep' ? function (a, b) { return b.ep - a.ep || b.t - a.t; }
@@ -216,14 +234,15 @@
     for (var i = shown; i < end; i++) {
       var g = filtered[i];
       var isNew = lastVisit && g.t > lastVisit;
-      html += '<div class="c" data-i="' + i + '">'
+      html += '<div class="c" data-i="' + i + '"><div class="pw">'
         + '<img loading="lazy" referrerpolicy="no-referrer" src="' + esc(g.im) + '" data-k="' + esc(g.k) + '">'
+        + '<span class="mk"><button data-a="w" class="' + (marked(watch, g) ? 'on' : '') + '" aria-label="De văzut">📌</button>'
+        + '<button data-a="s" class="' + (marked(seen, g) ? 'on' : '') + '" aria-label="Văzut">👁</button></span></div>'
         + (g.ep ? '<span class="ep">' + g.ep + ' EP</span>' : '')
         + (isNew ? '<span class="nw">NOU</span>' : '')
         + (g.bd ? '<span class="nw" style="background:#a33;top:26px">⚠ indisponibil</span>' : '')
         + '<div class="t">' + esc(g.ti) + '</div>'
-        + '<div class="m"><span>' + esc(g.ho.replace('.dramafren.org', '')) + (g.al ? ' <b class="al">+' + g.al.length + '</b>' : '') + '</span>'
-        + '<span class="mk"><span data-a="w" class="' + (marked(watch, g) ? 'on' : '') + '">📌</span><span data-a="s" class="' + (marked(seen, g) ? 'on' : '') + '">👁</span></span></div>'
+        + '<div class="m"><span>' + esc(g.ho.replace('.dramafren.org', '')) + (g.al ? ' <b class="al">+' + g.al.length + '</b>' : '') + '</span></div>'
         + '</div>';
     }
     $('grid').insertAdjacentHTML('beforeend', html);
@@ -243,10 +262,11 @@
     var c = e.target.closest('.c');
     if (!c) return;
     var g = filtered[+c.getAttribute('data-i')];
-    var a = e.target.getAttribute('data-a');
+    var btn = e.target.closest('[data-a]');
+    var a = btn && btn.getAttribute('data-a');
     if (a === 'w' || a === 's') {
       toggleMark(a === 'w' ? watch : seen, a === 'w' ? 'df.watch' : 'df.seen', g);
-      e.target.className = marked(a === 'w' ? watch : seen, g) ? 'on' : '';
+      btn.className = marked(a === 'w' ? watch : seen, g) ? 'on' : '';
       if (view !== 'all' || a === 's') setTimeout(function () { apply(true); }, 250);
       return;
     }
@@ -268,13 +288,15 @@
     var s = e.target.getAttribute('data-site');
     if (s) { send('hub:site:' + s); if (/^open:/.test(s)) $('sheet').className = 'sheet'; else setTimeout(showSites, 300); return; }
     var c = e.target.getAttribute('data-cmd');
-    if (c) { $('sheet').className = 'sheet'; c === 'add' ? addSite() : c === 'clear' ? (confirm('Ștergi toate filmele din listă? (De văzut / Văzute rămân)') && send('hub:clear')) : send('hub:' + c); }
+    if (c) { $('sheet').className = 'sheet'; c === 'add' ? addSite() : c === 'clear' ? (confirm('Ștergi toate filmele din listă? Filmele de la De văzut și Văzute rămân.') && send('hub:clear:' + JSON.stringify(Object.keys(watch).concat(Object.keys(seen))))) : send('hub:' + c); }
   });
 
   function showSites() {
+    var ncf = sites.filter(function (s) { return s.on && s.st === 'cf'; }).length;
     var stTxt = { ok: '<span class="st-ok">merge</span>', cf: '<span class="st-cf">cere verificare: deschide-l o dată</span>', gol: '<span class="st-gol">niciun film găsit</span>' };
     sheet('<h3>Site-uri (' + sites.length + ')</h3>'
       + '<p style="color:#9a9aa8;margin:0 0 6px">Site-urile noi din meniuri se adaugă singure. Cele oprite nu apar în listă și nu sunt căutate.</p>'
+      + '<div class="li"><div class="x">✅ Verifică toate site-urile<small>' + (ncf ? ncf + ' cer verificare acum. ' : '') + 'Le deschid pe rând și trec singur la următorul. Tu doar bifezi căsuța când apare.</small></div><button data-cmd="verify" class="go">Pornește</button></div>'
       + sites.map(function (s) {
         var st = /^mutat:/.test(s.st || '') ? '<span class="st-ok">se mută pe ' + esc(s.st.slice(6)) + ' (filmele sunt acolo)</span>' : (stTxt[s.st] || 'necăutat încă');
         return '<div class="li"><div class="x">' + esc(s.host) + '<small>' + s.n + ' filme · ' + st + '</small></div>'
@@ -290,6 +312,7 @@
 
   $('crawl').onclick = function () { send(crawling ? 'hub:stop' : 'hub:crawl'); };
   $('status').onclick = function () {
+    if (lastStatus.verifying) { if (confirm('Oprești verificarea site-urilor?')) send('hub:verifystop'); return; }
     if (lastStatus.searching && confirm('Oprești căutarea pe site-uri? Filmele găsite până acum rămân.')) send('hub:searchstop');
   };
   $('sitesBtn').onclick = showSites;
@@ -301,6 +324,91 @@
       + '<div class="li"><div class="x">Diagnostic (copiază, pentru chat)</div><button data-cmd="diag">Copiază</button></div>'
       + '<div class="li"><div class="x">Golește lista de filme</div><button data-cmd="clear">Golește</button></div>');
   };
+  // ---------- cautare dupa gen (cuvinte din titlu) ----------
+  // k: cuvinte/expresii despartite prin virgula; cele cu * la final se potrivesc si ca inceput de cuvant (seduc* = seduce, seduction…)
+  var GENRES = [
+    { n: 'Scene explicite 18+', e: '🔥', d: 'passion, desire, seduce, one night, mistress, affair, lust…',
+      k: 'passion*, desire*, seduc*, steamy, lust*, one night, night with, in bed, bed, mistress*, affair*, forbidden, sinful, sin, temptation, tempt*, intimate, erotic*, sex, sexy, naughty, hot, obsess*, possess*, crav*, addicted, sugar daddy, pleasure*, dirty, spicy, taboo, lover*, lingerie, hookup, indulg*, ravish*, scandal*, heat' },
+    { n: 'CEO / miliardar', e: '💼', d: 'CEO, billionaire, boss, tycoon, heir…', k: 'ceo, billionaire*, millionaire*, trillionaire*, boss*, tycoon*, president, heir, heiress, rich*, mogul, magnate, chairman, wealth*, young master' },
+    { n: 'Răzbunare', e: '🗡', d: 'revenge, betrayal, regret, payback…', k: 'reveng*, betray*, vengean*, payback, regret*, karma, scorn*, cheat*, aveng*, retribution, ruthless, too late' },
+    { n: 'Căsătorie / contract', e: '💍', d: 'contract, marriage, wife, bride, divorce…', k: 'contract*, marri*, marry, wife, wives, husband*, bride*, wedding*, groom, spouse*, divorc*' },
+    { n: 'Romantic', e: '💕', d: 'love, heart, crush, sweet, kiss…', k: 'love*, romance, romantic, heart*, crush*, darling, sweet*, kiss*, fall for, falling, boyfriend, girlfriend' },
+    { n: 'Copii / sarcină', e: '👶', d: 'pregnant, baby, twins, mommy, daddy…', k: 'pregnan*, baby, babies, twin*, triplet*, quadruplet*, quintuplet*, mommy, mom, daddy, dad, kid*, child*' },
+    { n: 'Vârcolaci (alpha)', e: '🐺', d: 'alpha, wolf, luna, lycan, mate…', k: 'alpha*, wolf, wolves, werewolf*, luna, lycan*, pack, mate, mated, omega' },
+    { n: 'Fantasy / vampiri', e: '🧛', d: 'vampire, dragon, witch, demon, goddess…', k: 'vampir*, dragon*, witch*, demon*, immortal*, god, goddess*, magic*, fairy, fae, angel*, devil*, monster*, curse*, mermaid*' },
+    { n: 'Renaștere / a doua șansă', e: '🔁', d: 'reborn, rebirth, second chance, time travel…', k: 'reborn, rebirth, second chance, again, back to, time travel*, transmigrat*, reincarnat*, return*, redo, second life, start over' },
+    { n: 'Regal / istoric', e: '👑', d: 'queen, king, prince, empress, palace…', k: 'queen*, king*, prince*, princess*, empress*, emperor*, royal*, palace*, duke*, duchess*, concubine*, throne*, dynasty, kingdom*' },
+    { n: 'Identitate ascunsă', e: '🎭', d: 'hidden, secret, disguise, true identity…', k: 'hidden, secret*, disguis*, undercover, true identity, real identity, mysterious, incognito, unknown, fake, pretend*, masked, double life' },
+    { n: 'Acțiune / luptă', e: '🥊', d: 'martial, war god, warrior, legend, master…', k: 'martial, war god, god of war, warrior*, fight*, legend*, invincible, master, assassin*, soldier*, mercenar*, kung fu, battle*, dragon king' },
+    { n: 'Mafia / pericol', e: '🖤', d: 'mafia, don, gangster, bad boy, dangerous…', k: 'mafia*, don, gangster*, mob, bad boy, dangerous, cartel*, godfather' },
+    { n: 'Școală / campus', e: '🎓', d: 'school, campus, college, student…', k: 'school*, campus, college, student*, teacher*, academy, university, professor*' },
+    { n: 'Doctor / spital', e: '🩺', d: 'doctor, surgeon, nurse, hospital…', k: 'doctor*, surgeon*, nurse*, hospital*, medical' }
+  ];
+  GENRES.forEach(function (G) {
+    var src = G.k.split(',').map(function (w) { return w.trim(); }).filter(Boolean).map(function (w) {
+      var pre = /\*$/.test(w);
+      w = w.replace(/\*$/, '').replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/ +/g, '\\s+');
+      return w + (pre ? '' : '(?![a-z0-9])');
+    }).join('|');
+    G.re = new RegExp('(^|[^a-z0-9])(' + src + ')');
+  });
+  function findGenre(v) {
+    var x = norm(v.trim()).replace(/^[^a-z0-9]+/, '');
+    if (!x) return null;
+    for (var i = 0; i < GENRES.length; i++) if (norm(GENRES[i].n) === x || norm(GENRES[i].e + ' ' + GENRES[i].n) === norm(v.trim())) return GENRES[i];
+    // o parte din numele genului (ex. "ceo", "18+", "razbunare") alege tot genul
+    if (x.length >= 3) for (var j = 0; j < GENRES.length; j++) if (norm(GENRES[j].n).indexOf(x) >= 0) return GENRES[j];
+    return null;
+  }
+  function genreFilter() {
+    var v = $('gen').value.trim();
+    if (!v) return null;
+    var G = findGenre(v);
+    if (G) return function (g) { return G.re.test(norm(g.ti)); };
+    // gen scris de mana: titlul trebuie sa contina cuvintele
+    var ws = norm(v).split(/\s+/).filter(Boolean);
+    return function (g) { var t = norm(g.ti); for (var i = 0; i < ws.length; i++) if (t.indexOf(ws[i]) < 0) return false; return true; };
+  }
+  function countGenre(G) {
+    var n = 0;
+    for (var i = 0; i < groups.length; i++) if (G.re.test(norm(groups[i].ti))) n++;
+    return n;
+  }
+  function showGenres() {
+    var v = norm($('gen').value.trim());
+    var list = GENRES.filter(function (G) { return !v || norm(G.n + ' ' + G.d).indexOf(v) >= 0 || findGenre($('gen').value); });
+    $('genList').innerHTML = '<div class="gh">Genuri căutate după cuvintele din titlu. Poți scrie și altceva (ex. „mafia”, „twins”).</div>'
+      + list.map(function (G) {
+        return '<button class="gi" data-g="' + esc(G.n) + '">' + G.e + ' ' + esc(G.n) + ' <span style="color:var(--mut)">(' + countGenre(G) + ')</span><small>' + esc(G.d) + '</small></button>';
+      }).join('');
+    $('genList').className = 'gl show';
+  }
+  function hideGenres() { $('genList').className = 'gl'; }
+  function genChanged() {
+    $('genX').style.display = $('gen').value ? '' : 'none';
+    apply(false);
+  }
+  $('gen').addEventListener('focus', showGenres);
+  $('gen').addEventListener('input', function () { showGenres(); clearTimeout(tmr); tmr = setTimeout(genChanged, 200); });
+  $('gen').addEventListener('keydown', function (e) { if (e.key === 'Enter') { hideGenres(); try { $('gen').blur(); } catch (x) { } } });
+  // pointerdown + preventDefault: lista nu dispare inainte sa prinda atingerea
+  $('genList').addEventListener('pointerdown', function (e) { e.preventDefault(); });
+  $('genList').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-g]');
+    if (!b) return;
+    var G = findGenre(b.getAttribute('data-g'));
+    $('gen').value = G.e + ' ' + G.n;
+    hideGenres();
+    try { $('gen').blur(); } catch (x) { }
+    genChanged();
+    window.scrollTo(0, 0);
+    if (G.e === '🔥') toast('Pentru mai multe filme de genul ăsta: ⋯ → Căutare adâncă: doar romantice.');
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (!e.target.closest('#genList') && e.target !== $('gen')) hideGenres();
+  });
+  $('genX').onclick = function () { $('gen').value = ''; hideGenres(); genChanged(); };
+
   var tmr;
   // cautarea merge si pe toate site-urile (filmele gasite acolo se adauga in lista)
   var rtmr;

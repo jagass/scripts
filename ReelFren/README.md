@@ -39,3 +39,12 @@ Mareste `versionCode` in `app/build.gradle` la fiecare update.
 Pe pagina unui serial apare sus butonul **🔍 Verifica episoadele**: aplicatia trece prin toate episoadele
 (fara sunet) si arata care pornesc si care nu (eroare video, mesajul site-ului "Video cannot be loaded",
 sau nu porneste in 15s). Cod: `app/src/main/assets/epcheck.js` (folosit si de aplicatiile desktop).
+
+## DramaFren: căutare, gen, „De văzut”, verificare site-uri
+- **Caută titlu**: rămân doar filmele al căror titlu conține toate cuvintele scrise.
+- **🎭 Gen**: atingi câmpul și alegi un gen din listă (CEO, Răzbunare, Scene explicite 18+, Vârcolaci…), sau scrii orice cuvânt.
+  Genul se recunoaște după cuvintele din titlu (ex. 18+: passion, desire, seduce, one night, mistress…). Același câmp există și în lista ReelFren.
+- **📌 / 👁** sunt butoane rotunde pe poster, vizibile pe orice imagine.
+- **Golește lista** păstrează filmele de la „De văzut” și „Văzute”.
+- **🌐 Site-uri → ✅ Verifică toate site-urile**: deschide pe rând fiecare site (întâi cele care cer verificare Cloudflare) și trece singur
+  la următorul după ce pagina se deschide. Tu doar bifezi căsuța când apare. Atinge bara de stare ca să oprești.
