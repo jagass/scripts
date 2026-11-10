@@ -33,6 +33,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -250,6 +251,10 @@ public class MainActivity extends Activity {
         s.setJavaScriptCanOpenWindowsAutomatically(false);
         // Unele site-uri refuza WebView-ul; ne prezentam ca un Chrome obisnuit.
         s.setUserAgentString(s.getUserAgentString().replace("; wv", ""));
+        // ...si fara antetul "X-Requested-With: <aplicatia>" (Chrome nu-l trimite; unele site-uri opresc video-ul dupa el)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            try { WebSettingsCompat.setRequestedWithHeaderOriginAllowList(s, Collections.emptySet()); } catch (Exception ignored) { }
+        }
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
@@ -315,7 +320,11 @@ public class MainActivity extends Activity {
             WebViewCompat.addDocumentStartJavaScript(w, openJs, Collections.singleton("*"));
         }
         webView.setVisibility(View.GONE);
-        root.addView(w, tabs.size(), new FrameLayout.LayoutParams(
+        // pagina noua merge imediat DEASUPRA paginii de sus. (Inainte: pozitia tabs.size(), dar paginile ascunse
+        // ale robotului / cautarii stau tot in root, la inceput, asa ca pagina noua ajungea SUB ele: vedeai o
+        // pagina ascunsa, fara poze, iar atingerile nu mai ajungeau la filmul deschis.)
+        int at = root.indexOfChild(tabs.get(tabs.size() - 1)) + 1;
+        root.addView(w, at, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         tabs.add(w);
         webView = w;
@@ -490,6 +499,12 @@ public class MainActivity extends Activity {
     }
 
     private class ChromeClient extends WebChromeClient {
+        // fara pictograma gri cu ▶ uriasa pe care o pune Android peste un video care inca nu a pornit
+        @Override
+        public android.graphics.Bitmap getDefaultVideoPoster() {
+            return android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888);
+        }
+
         @Override
         public void onProgressChanged(WebView view, int newProgress) {
             if (view != webView) return;
