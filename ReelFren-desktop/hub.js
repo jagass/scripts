@@ -26,6 +26,7 @@ const ROMANCE_WORDS = ['passion', 'desire', 'seduce', 'seduction', 'lust', 'stea
   'pregnant by', 'contract lover', 'sugar daddy', 'heat', 'mate', 'submit', 'dominant', 'taboo'];
 
 function hostOf(url) { try { return new URL(url).hostname.toLowerCase(); } catch (e) { return ''; } }
+function baseOf(host) { const p = String(host || '').split('.'); return p.length <= 2 ? host : p.slice(-2).join('.'); }
 
 // amprenta pe 64 de biti, tinuta ca 16 caractere hex; comparatia pe doua jumatati de 32 de biti
 function pop32(x) { x -= (x >>> 1) & 0x55555555; x = (x & 0x33333333) + ((x >>> 2) & 0x33333333); return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24; }
@@ -61,6 +62,7 @@ class Hub {
     this.verifyQueue = []; this.verifyHost = ''; this.verifyTotal = 0; this.verifyDone = 0; this.verifyTimer = null;
     this.load();
     SEEDS.forEach((s) => this.addSite(s, '', false));
+    this.removeJunkSites();
     for (const h of this.sites.keys()) owner.allowHost(h);
     for (const it of this.items.values()) if (it.hs === 0 || it.hs === 3) { it.hs = 0; this.queueHash(it); }
   }
@@ -159,6 +161,26 @@ class Hub {
       clearTimeout(this.timeout);
       this.timeout = setTimeout(() => this.next(), 400);
     }
+  }
+
+  // domeniile "de familie": cele de pornire + cele ale site-urilor care chiar au dat filme
+  knownBases() {
+    const b = new Set(SEEDS.map((s) => baseOf(hostOf(s))));
+    for (const it of this.items.values()) b.add(baseOf(it.host));
+    return b;
+  }
+  // mutarea pe alta adresa: doar spre un domeniu cunoscut (altfel e de obicei o reclama, ex. llmsitoken.com)
+  acceptMove(toHost) { return !!toHost && this.knownBases().has(baseOf(toHost.toLowerCase())); }
+  // scoate site-urile adaugate gresit dintr-o reclama: domeniu necunoscut, venite dintr-o "mutare", fara filme
+  removeJunkSites() {
+    const known = this.knownBases(), withItems = new Set([...this.items.values()].map((it) => it.host));
+    const junk = [...this.sites.values()].filter((s) => this.sites.has(s.label) && !withItems.has(s.host)
+      && s.status !== 'ok' && !known.has(baseOf(s.host))).map((s) => s.host);
+    for (const h of junk) {
+      this.sites.delete(h);
+      for (const s of this.sites.values()) if (s.status === 'mutat:' + h) s.status = '';
+    }
+    if (junk.length) this.scheduleSave();
   }
 
   onMoved(fromUrl, toUrl) {

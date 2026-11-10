@@ -442,8 +442,10 @@ public class MainActivity extends Activity {
             }
             // DramaFren: un site din lista care te muta singur pe alta adresa (ex. dupa verificarea Cloudflare
             // sau pe domeniul lui nou) - redirect al serverului sau imediat dupa incarcarea paginii
+            // (doar spre un domeniu cunoscut sau printr-un redirect al serverului: altfel e o reclama)
             if (HUB && !isAdHost(uri.getHost()) && isAllowed(Uri.parse(String.valueOf(view.getUrl())))
-                    && (request.isRedirect() || SystemClock.uptimeMillis() - pageStartOf(view) < 20000)) {
+                    && (request.isRedirect() || SystemClock.uptimeMillis() - pageStartOf(view) < 20000)
+                    && hub.acceptMove(uri.getHost(), request.isRedirect())) {
                 userAllowedHosts.add(uri.getHost().toLowerCase());
                 hub.onMoved(view.getUrl(), uri.toString());
                 return false;

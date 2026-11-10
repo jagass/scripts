@@ -130,6 +130,7 @@ class Hub {
         this.file = new File(ctx.getFilesDir(), "hub.json");
         load();
         for (String s : SEEDS) addSite(s, "", false);
+        removeJunkSites();
         for (String h : sites.keySet()) owner.allowHost(h);
         hashMissing();
     }
@@ -437,6 +438,45 @@ class Hub {
             ui.removeCallbacks(timeout);
             ui.postDelayed(timeout, 400);
         }
+    }
+
+    private static String baseOf(String host) {
+        String[] p = host.split("\\.");
+        return p.length <= 2 ? host : p[p.length - 2] + "." + p[p.length - 1];
+    }
+
+    /** Domeniile "de familie": cele de pornire + cele ale site-urilor care chiar au dat filme. */
+    private Set<String> knownBases() {
+        Set<String> b = new HashSet<>();
+        for (String s : SEEDS) b.add(baseOf(hostOf(s)));
+        for (Item it : items.values()) b.add(baseOf(it.host));
+        return b;
+    }
+
+    /**
+     * Mutarea unui site pe alta adresa e acceptata doar spre un domeniu cunoscut (ex. x.dramafren.org) sau printr-un
+     * redirect al serverului. Altfel e de obicei o reclama care te trimite in alta parte (ex. llmsitoken.com).
+     */
+    boolean acceptMove(String toHost, boolean serverRedirect) {
+        if (toHost == null || toHost.isEmpty()) return false;
+        return serverRedirect || knownBases().contains(baseOf(toHost.toLowerCase()));
+    }
+
+    /** Scoate site-urile adaugate gresit dintr-o reclama: domeniu necunoscut, venite dintr-o "mutare", fara filme. */
+    private void removeJunkSites() {
+        Set<String> known = knownBases();
+        List<String> junk = new ArrayList<>();
+        for (Site s : sites.values()) {
+            boolean fromMove = sites.containsKey(s.label); // la o mutare, eticheta e adresa site-ului vechi
+            boolean hasItems = false;
+            for (Item it : items.values()) if (it.host.equals(s.host)) { hasItems = true; break; }
+            if (fromMove && !hasItems && !"ok".equals(s.status) && !known.contains(baseOf(s.host))) junk.add(s.host);
+        }
+        for (String h : junk) {
+            sites.remove(h);
+            for (Site s : sites.values()) if (("mutat:" + h).equals(s.status)) s.status = "";
+        }
+        if (!junk.isEmpty()) scheduleSave();
     }
 
     /** Un site din lista s-a mutat singur pe alta adresa: o adaugam ca site (cu filmele ei). */

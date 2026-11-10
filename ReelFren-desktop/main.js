@@ -210,7 +210,7 @@ function attachGuards(wc) {
     if (fromUserClick(u)) { allowByUser(u); return; }
     // DramaFren: un site din lista care te muta singur pe alta adresa (ex. dupa verificarea Cloudflare)
     if (HUB && hub && isAllowed(wc.getURL()) && !hostMatches(hostOf(u), AD_HOSTS) &&
-        Date.now() - (pageStart.get(wc.id) || 0) < 20000 && /^https?:/.test(u)) {
+        Date.now() - (pageStart.get(wc.id) || 0) < 20000 && /^https?:/.test(u) && hub.acceptMove(hostOf(u))) {
       userAllowedHosts.add(hostOf(u));
       hub.onMoved(wc.getURL(), u);
       return;
