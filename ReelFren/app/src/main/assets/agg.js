@@ -506,11 +506,13 @@
   }
 
   // ---------- pagina de eroare a site-ului (filmul nu e disponibil acolo) ----------
-  var BROKEN = /data not found|no cache available|drama not found|video not found|series not found|content not found|not available in your region|no episodes? (found|available)|episode not found|failed to load (data|drama|video)/i;
+  var BROKEN = /data not found|no cache available|drama not found|video not found|series not found|content not found|not available in your region|no episodes? (found|available)|episode not found|failed to load (data|drama|video)|the resource requested could not be found|404 not found|page not found|this page (could not|can't|cannot) be found/i;
   function checkBroken() {
     if (window.__dfCrawl || window.__dfSearch || window.__dfBrokenSent) return;
     var t = (document.body && document.body.innerText) || '';
-    if (t.length > 4000 || !BROKEN.test(t)) return;
+    // pagina de eroare a serverului (ex. "404 Not Found"): titlul o spune chiar daca textul e scurt sau gol
+    var is404 = /^\s*(404|not found)\b/i.test(document.title || '') || /^\s*404\s+not found/i.test(t);
+    if (!is404 && (t.length > 4000 || !BROKEN.test(t))) return;
     var v = document.querySelector('video');
     if (v && (v.currentSrc || v.src)) return;
     window.__dfBrokenSent = 1;

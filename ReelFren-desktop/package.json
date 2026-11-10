@@ -1,7 +1,7 @@
 {
   "name": "reelfren-desktop",
   "productName": "ReelFren",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Aplicatie desktop personala (fereastra dedicata) pentru site-uri de seriale scurte",
   "main": "main.js",
   "private": true,

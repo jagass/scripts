@@ -10,8 +10,8 @@ android {
         applicationId 'net.reelfren.app'
         minSdk 26
         targetSdk 34
-        versionCode 63
-        versionName '7.1'
+        versionCode 64
+        versionName '7.2'
     }
 
     buildFeatures {
