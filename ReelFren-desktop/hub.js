@@ -427,7 +427,7 @@ class Hub {
     else if (cmd === 'searchstop') this.stopSearch();
     else if (cmd === 'crawl') this.startCrawl();
     else if (cmd === 'stop') this.stopCrawl();
-    else if (cmd.startsWith('open:')) { const it = this.items.get(cmd.slice(5)); if (it) this.openItem(it); }
+    else if (cmd.startsWith('open:')) { if (this.searching) this.stopSearch(); const it = this.items.get(cmd.slice(5)); if (it) this.openItem(it); }
     else if (cmd.startsWith('site:')) {
       const p = cmd.split(':');
       const act = p[1], s = this.sites.get(p.slice(2).join(':'));

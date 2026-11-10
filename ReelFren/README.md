@@ -41,7 +41,9 @@ Pe pagina unui serial apare sus butonul **🔍 Verifica episoadele**: aplicatia 
 sau nu porneste in 15s). Cod: `app/src/main/assets/epcheck.js` (folosit si de aplicatiile desktop).
 
 ## DramaFren: căutare, gen, „De văzut”, verificare site-uri
-- **Caută titlu**: rămân doar filmele al căror titlu conține toate cuvintele scrise.
+- **Caută în lista mea**: caută doar în filmele deja încărcate; rămân doar cele al căror titlu conține toate cuvintele scrise.
+- **🌐 Caută pe site-uri**: caută titlul pe toate site-urile doar când apeși butonul (filmele găsite se adaugă în listă).
+  Când deschizi un film, căutarea pe site-uri care încă rulează se oprește.
 - **🎭 Gen**: atingi câmpul și alegi un gen din listă (CEO, Răzbunare, Scene explicite 18+, Vârcolaci…), sau scrii orice cuvânt.
   Genul se recunoaște după cuvintele din titlu (ex. 18+: passion, desire, seduce, one night, mistress…). Același câmp există și în lista ReelFren.
 - **📌 / 👁** sunt butoane rotunde pe poster, vizibile pe orice imagine.

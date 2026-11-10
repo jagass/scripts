@@ -779,6 +779,7 @@ class Hub {
         } else if (cmd.equals("stop")) {
             stopCrawl();
         } else if (cmd.startsWith("open:")) {
+            if (searching) stopSearch(); // filmul se deschide mai repede fara paginile ascunse de cautare
             open(cmd.substring(5));
         } else if (cmd.startsWith("site:")) {
             String[] p = cmd.split(":", 3);

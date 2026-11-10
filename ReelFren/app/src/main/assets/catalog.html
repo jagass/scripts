@@ -62,7 +62,8 @@
     <button id="menuBtn">⋯</button>
   </div>
   <div class="row">
-    <input id="q" type="search" placeholder="Caută titlu…" autocomplete="off">
+    <input id="q" type="search" placeholder="Caută în lista mea…" autocomplete="off">
+    <button id="siteSearch" title="Caută titlul pe toate site-urile">🌐 Caută pe site-uri</button>
     <select id="sort">
       <option value="ep">Episoade ↓</option>
       <option value="new">Noi primele</option>
@@ -411,16 +412,18 @@
 
   var tmr;
   // cautarea merge si pe toate site-urile (filmele gasite acolo se adauga in lista)
-  var rtmr;
-  function remoteSearch() {
+  // campul de cautare filtreaza DOAR lista incarcata; pe site-uri se cauta numai cand apesi butonul
+  function siteSearch() {
     var q = $('q').value.trim();
-    if (q.length >= 3) send('hub:search:' + q);
+    if (q.length < 3) { toast('Scrie cel puțin 3 litere, apoi apasă „Caută pe site-uri”.'); try { $('q').focus(); } catch (x) { } return; }
+    send('hub:search:' + q);
+    toast('Caut „' + q + '” pe toate site-urile. Filmele găsite se adaugă în listă.');
   }
+  $('siteSearch').onclick = siteSearch;
   $('q').addEventListener('input', function () {
     clearTimeout(tmr); tmr = setTimeout(function () { apply(false); }, 150);
-    clearTimeout(rtmr); rtmr = setTimeout(remoteSearch, 1200);
   });
-  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') { clearTimeout(rtmr); remoteSearch(); try { $('q').blur(); } catch (x) { } } });
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') { try { $('q').blur(); } catch (x) { } } });
   $('minep').addEventListener('input', function () { clearTimeout(tmr); tmr = setTimeout(function () { apply(false); }, 250); });
   $('sort').onchange = $('site').onchange = function () { apply(false); };
   $('more').onclick = function () { render(shown + PAGE); };
