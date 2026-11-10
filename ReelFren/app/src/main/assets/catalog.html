@@ -175,6 +175,8 @@
     return n;
   }
   function norm(t) { return String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
+  // pentru cautare: doar litere si cifre ("superpower?spotting" = "superpower spotting")
+  function plain(t) { return ' ' + norm(t).replace(/[^a-z0-9]+/g, ' ').trim() + ' '; }
   var hitQ = '', hitSet = {};
   function isHit(g) { for (var i = 0; i < g.ks.length; i++) if (hitSet[g.ks[i]]) return true; return false; }
   // un cuvant se potriveste si cu mici greseli de scriere (ex. "succesor" ~ "successor")
@@ -184,9 +186,22 @@
     return tt.indexOf(w.slice(0, Math.max(4, w.length - 2))) >= 0;
   }
   function apply(keepScroll) {
-    var q = norm($('q').value.trim()), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
+    var q = plain($('q').value).trim(), min = +$('minep').value || 0, site = $('site').value, sort = $('sort').value;
     var words = q ? q.split(/\s+/) : [];
     var gf = genreFilter();
+    // ce au gasit site-urile pentru exact cautarea asta (afisat doar daca nu e nicio potrivire in titluri)
+    var siteHits = words.length && hitQ && plain(hitQ).trim() === q;
+    var viaHits = false;
+    function keepBasic(g) {
+      var w = marked(watch, g), s = marked(seen, g);
+      if (view === 'watch') { if (!w || s) return false; }
+      else if (view === 'seen') { if (!s) return false; }
+      else if (s) return false;
+      if (min && g.ep < min) return false;
+      if (site && g.ho !== site && !(g.al || []).some(function (a) { return a[1] === site; })) return false;
+      if (gf && !gf(g)) return false;
+      return true;
+    }
     filtered = groups.filter(function (g) {
       var w = marked(watch, g), s = marked(seen, g);
       if (view === 'watch') { if (!w || s) return false; }
@@ -196,12 +211,16 @@
       if (site && g.ho !== site && !(g.al || []).some(function (a) { return a[1] === site; })) return false;
       // cautarea: raman doar filmele al caror titlu contine toate cuvintele scrise
       if (words.length) {
-        var tt = norm(g.ti);
+        var tt = plain(g.ti);
         for (var i = 0; i < words.length; i++) if (tt.indexOf(words[i]) < 0) return false;
       }
       if (gf && !gf(g)) return false;
       return true;
     });
+    if (!filtered.length && siteHits) {
+      filtered = groups.filter(function (g) { return isHit(g) && keepBasic(g); });
+      viaHits = filtered.length > 0;
+    }
     var cmp = sort === 'ep' ? function (a, b) { return b.ep - a.ep || b.t - a.t; }
       : sort === 'new' ? function (a, b) { return b.t - a.t; }
       : function (a, b) { return a.ti.localeCompare(b.ti); };
@@ -223,6 +242,9 @@
       e.style.display = '';
     } else if (!filtered.length) {
       e.textContent = view === 'watch' ? 'Nu ai niciun film la „De văzut”. Apasă 📌 pe un film.' : view === 'seen' ? 'Niciun film văzut încă.' : 'Niciun film nu se potrivește.';
+      e.style.display = '';
+    } else if (viaHits) {
+      e.textContent = 'Niciun titlu nu conține exact „' + $('q').value.trim() + '”. Mai sus sunt filmele găsite de site-uri pentru căutarea asta.';
       e.style.display = '';
     } else e.style.display = 'none';
     status(lastStatus);
@@ -418,7 +440,7 @@
   function siteSearch() {
     var q = $('q').value.trim();
     if (q.length < 3) { toast('Scrie cel puțin 3 litere, apoi apasă „Caută pe site-uri”.'); try { $('q').focus(); } catch (x) { } return; }
-    send('hub:search:' + q);
+    send('hub:search:' + q.replace(/[^\p{L}\p{N}]+/gu, ' ').trim());
     toast('Caut „' + q + '” pe toate site-urile. Filmele găsite se adaugă în listă.');
   }
   $('siteSearch').onclick = siteSearch;
