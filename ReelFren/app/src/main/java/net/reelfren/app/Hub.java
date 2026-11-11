@@ -108,6 +108,8 @@ class Hub {
     private boolean crawling = false;
     private final ArrayDeque<String> queue = new ArrayDeque<>();
     private final Set<String> visited = new HashSet<>();
+    /** site-urile care au trimis macar un raport in cautarea curenta (celelalte: "nu raspunde") */
+    private final Set<String> reportedThisRun = new HashSet<>();
     private final Map<String, Integer> perHost = new HashMap<>();
     private String current = "";
     private long crawlPageAt = 0;
@@ -131,6 +133,8 @@ class Hub {
         load();
         for (String s : SEEDS) addSite(s, "", false);
         removeJunkSites();
+        // stare veche gresita: site cu filme marcat "niciun film gasit"
+        for (Site s : sites.values()) if ("gol".equals(s.status) && siteHasItems(s.host)) s.status = "ok";
         for (String h : sites.keySet()) owner.allowHost(h);
         hashMissing();
     }
@@ -327,6 +331,7 @@ class Hub {
         JSONObject r;
         try { r = new JSONObject(json); } catch (Exception e) { return; }
         String host = r.optString("host"), page = r.optString("url");
+        if (fromCrawler) reportedThisRun.add(host);
         Site site = sites.get(host);
         if (site == null) {
             // pagini de pe site-uri noi: doar daca le-am descoperit (sau sunt pe acelasi domeniu)
@@ -398,7 +403,7 @@ class Hub {
             diag.put(host, d.toString());
             if (d.optBoolean("cf")) site.status = "cf";
             else if (d.optInt("domCards") + d.optInt("jsonItems") > 0) site.status = "ok";
-            else if (r.optBoolean("done")) site.status = "gol";
+            else if (r.optBoolean("done")) site.status = siteHasItems(site.host) ? "ok" : "gol"; // o pagina fara postere (ex. a unui film) nu inseamna site gol
             else if ("cf".equals(site.status)) site.status = ""; // verificarea a trecut, pagina se incarca
             // "Verifica toate": pagina vizibila a site-ului curent s-a deschis fara verificare -> urmatorul
             if (!verifyHost.isEmpty() && !fromCrawler && !fromSearch && !d.optBoolean("cf")
@@ -479,6 +484,11 @@ class Hub {
         if (!junk.isEmpty()) scheduleSave();
     }
 
+    private boolean siteHasItems(String host) {
+        for (Item it : items.values()) if (it.host.equals(host)) return true;
+        return false;
+    }
+
     /** Un site din lista s-a mutat singur pe alta adresa: o adaugam ca site (cu filmele ei). */
     void onMoved(String fromUrl, String toUrl) {
         String to = hostOf(toUrl);
@@ -513,7 +523,7 @@ class Hub {
         if (crawling) return;
         if (crawler == null) crawler = owner.createCrawler();
         crawling = true;
-        queue.clear(); visited.clear(); perHost.clear();
+        queue.clear(); visited.clear(); perHost.clear(); reportedThisRun.clear();
         pagesDone = 0; newThisRun = 0;
         for (Site s : sites.values()) if (s.on) enqueue(s.url);
         next();
@@ -534,6 +544,9 @@ class Hub {
         if (url == null) {
             crawling = false;
             if (crawler != null) crawler.loadUrl("about:blank");
+            // site-urile pornite de la care nu a venit nicio pagina: probabil cazute
+            for (Site s : sites.values()) if (s.on && s.status.isEmpty() && !reportedThisRun.contains(s.host)) s.status = "nr";
+            scheduleSave();
             pushStatus("Gata: " + pagesDone + " pagini, " + newThisRun + " filme noi.");
             pushData(true);
             return;

@@ -317,7 +317,7 @@
 
   function showSites() {
     var ncf = sites.filter(function (s) { return s.on && s.st === 'cf'; }).length;
-    var stTxt = { ok: '<span class="st-ok">merge</span>', cf: '<span class="st-cf">cere verificare: deschide-l o dată</span>', gol: '<span class="st-gol">niciun film găsit</span>' };
+    var stTxt = { ok: '<span class="st-ok">merge</span>', cf: '<span class="st-cf">cere verificare: deschide-l o dată</span>', gol: '<span class="st-gol">niciun film găsit</span>', nr: '<span class="st-gol">nu răspunde (site căzut?)</span>' };
     sheet('<h3>Site-uri (' + sites.length + ')</h3>'
       + '<p style="color:#9a9aa8;margin:0 0 6px">Site-urile noi din meniuri se adaugă singure. Cele oprite nu apar în listă și nu sunt căutate.</p>'
       + '<div class="li"><div class="x">✅ Verifică toate site-urile<small>' + (ncf ? ncf + ' cer verificare acum. ' : '') + 'Le deschid pe rând și trec singur la următorul. Tu doar bifezi căsuța când apare.</small></div><button data-cmd="verify" class="go">Pornește</button></div>'

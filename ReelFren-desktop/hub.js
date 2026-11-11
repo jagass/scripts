@@ -63,6 +63,9 @@ class Hub {
     this.load();
     SEEDS.forEach((s) => this.addSite(s, '', false));
     this.removeJunkSites();
+    // stare veche gresita: site cu filme marcat "niciun film gasit"
+    const withItems = new Set([...this.items.values()].map((it) => it.host));
+    for (const s of this.sites.values()) if (s.status === 'gol' && withItems.has(s.host)) s.status = 'ok';
     for (const h of this.sites.keys()) owner.allowHost(h);
     for (const it of this.items.values()) if (it.hs === 0 || it.hs === 3) { it.hs = 0; this.queueHash(it); }
   }
@@ -86,6 +89,7 @@ class Hub {
     let r;
     try { r = JSON.parse(json); } catch (e) { return; }
     const host = r.host || '', page = r.url || '';
+    if (fromCrawler && this.reportedThisRun) this.reportedThisRun.add(host);
     let site = this.sites.get(host);
     if (!site) {
       if (!host.endsWith('dramafren.org')) return;
@@ -132,7 +136,7 @@ class Hub {
       this.diag.set(host, d);
       if (d.cf) site.status = 'cf';
       else if ((d.domCards || 0) + (d.jsonItems || 0) > 0) site.status = 'ok';
-      else if (r.done) site.status = 'gol';
+      else if (r.done) site.status = [...this.items.values()].some((it) => it.host === host) ? 'ok' : 'gol'; // pagina fara postere != site gol
       else if (site.status === 'cf') site.status = '';
       if (this.verifyHost && !fromCrawler && !fromSearch && !d.cf
         && (host === this.verifyHost || hostOf(wantedUrl || '') === this.verifyHost)) {
@@ -209,6 +213,7 @@ class Hub {
     if (!this.crawler) this.crawler = this.owner.createCrawler();
     this.crawling = true;
     this.queue = []; this.visited.clear(); this.perHost.clear(); this.pagesDone = 0; this.newThisRun = 0;
+    this.reportedThisRun = new Set();
     for (const s of this.sites.values()) if (s.on) this.enqueue(s.url);
     this.next();
   }
@@ -226,6 +231,9 @@ class Hub {
     if (!url) {
       this.crawling = false;
       if (this.crawler) this.owner.loadWith(this.crawler, null, 'about:blank');
+      // site-urile pornite de la care nu a venit nicio pagina: probabil cazute
+      for (const s of this.sites.values()) if (s.on && !s.status && !(this.reportedThisRun || new Set()).has(s.host)) s.status = 'nr';
+      this.scheduleSave();
       this.pushStatus('Gata: ' + this.pagesDone + ' pagini, ' + this.newThisRun + ' filme noi.');
       this.pushData();
       return;
